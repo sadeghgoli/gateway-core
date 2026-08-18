@@ -1,0 +1,7 @@
+/data/
+/bin/
+*.exe
+*.db
+.idea/
+.vscode/
+dist/

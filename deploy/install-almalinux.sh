@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+# نصب کامل Gateway Core روی AlmaLinux
+# اجرا از ریشه ریپو:
+#   sudo bash deploy/install-almalinux.sh
+#
+# متغیرهای اختیاری:
+#   ADMIN_PASSWORD   رمز پنل (اگر خالی باشد تصادفی ساخته می‌شود؛ فایل موجود را overwrite نمی‌کند)
+#   ADMIN_HOST       پیش‌فرض gateway-admin.sabzevar.ir
+#   SKIP_BUILD=1     اگر باینری از قبل در /usr/local/bin/gateway-core است
+#   SKIP_NGINX=1
+#   SKIP_FIREWALL=1
+
+set -euo pipefail
+
+if [[ ${EUID:-0} -ne 0 ]]; then
+  echo "این اسکریپت باید با root اجرا شود: sudo bash deploy/install-almalinux.sh" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ADMIN_HOST="${ADMIN_HOST:-gateway-admin.sabzevar.ir}"
+BIN_PATH="/usr/local/bin/gateway-core"
+DATA_DIR="/var/lib/gateway-core"
+ENV_FILE="/etc/gateway-core.env"
+UNIT_FILE="/etc/systemd/system/gateway-core.service"
+NGINX_MANAGED="/etc/nginx/conf.d/gateway-managed.conf"
+CERT_DIR="/etc/pki/nginx"
+CERT_FILE="${CERT_DIR}/fullchain.pem"
+KEY_FILE="${CERT_DIR}/privkey.pem"
+
+if [[ -f /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  . /etc/os-release
+fi
+if [[ "${ID:-}" != "almalinux" && "${ID:-}" != "rhel" && "${ID:-}" != "centos" && "${ID_LIKE:-}" != *"rhel"* ]]; then
+  echo "هشدار: این اسکریپت برای AlmaLinux/RHEL نوشته شده (شناسه فعلی: ${ID:-unknown}). ادامه می‌دهیم." >&2
+fi
+
+echo "==> نصب بسته‌ها"
+dnf install -y nginx firewalld openssl policycoreutils-python-utils tar gzip curl >/dev/null
+systemctl enable --now firewalld >/dev/null 2>&1 || true
+
+ensure_go() {
+  if command -v go >/dev/null 2>&1; then
+    local ver
+    ver="$(go version | awk '{print $3}' | sed 's/go//')"
+    if [[ "$(printf '%s\n' "1.22" "$ver" | sort -V | head -n1)" == "1.22" ]]; then
+      return 0
+    fi
+  fi
+  echo "==> نصب Go 1.22 (رسمی)"
+  local tmp
+  tmp="$(mktemp -d)"
+  curl -fsSL "https://go.dev/dl/go1.22.12.linux-amd64.tar.gz" -o "${tmp}/go.tgz"
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf "${tmp}/go.tgz"
+  ln -sfn /usr/local/go/bin/go /usr/local/bin/go
+  rm -rf "${tmp}"
+}
+
+if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  ensure_go
+  echo "==> ساخت باینری"
+  (cd "${REPO_ROOT}" && go build -o /tmp/gateway-core ./cmd/gateway)
+  install -m 0755 /tmp/gateway-core "${BIN_PATH}"
+  rm -f /tmp/gateway-core
+elif [[ ! -x "${BIN_PATH}" ]]; then
+  echo "SKIP_BUILD=1 است ولی ${BIN_PATH} وجود ندارد." >&2
+  exit 1
+fi
+
+echo "==> کاربر و مسیر داده"
+if ! id -u gateway >/dev/null 2>&1; then
+  useradd -r -s /sbin/nologin -d "${DATA_DIR}" gateway
+fi
+if getent group nginx >/dev/null 2>&1; then
+  usermod -a -G nginx gateway || true
+fi
+mkdir -p "${DATA_DIR}"
+chown gateway:gateway "${DATA_DIR}"
+chmod 750 "${DATA_DIR}"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  PASS="${ADMIN_PASSWORD:-$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)}"
+  umask 077
+  cat > "${ENV_FILE}" <<EOF
+GATEWAY_ADMIN_USER=admin
+GATEWAY_ADMIN_PASSWORD=${PASS}
+GATEWAY_ADMIN_HOST=${ADMIN_HOST}
+GATEWAY_LISTEN=127.0.0.1:8080
+GATEWAY_DB=${DATA_DIR}/gateway.db
+GATEWAY_NGINX_CONF=${NGINX_MANAGED}
+GATEWAY_NGINX_TEST=sudo /usr/sbin/nginx -t
+GATEWAY_NGINX_RELOAD=sudo /usr/sbin/nginx -s reload
+GATEWAY_NGINX_UPSTREAM=127.0.0.1:8080
+EOF
+  chmod 600 "${ENV_FILE}"
+  echo "==> رمز پنل در ${ENV_FILE} نوشته شد"
+else
+  echo "==> ${ENV_FILE} از قبل هست؛ دست نخورده ماند"
+fi
+
+echo "==> systemd"
+cat > "${UNIT_FILE}" <<'EOF'
+[Unit]
+Description=Sabzevar Gateway Core
+After=network.target nginx.service
+
+[Service]
+Type=simple
+User=gateway
+Group=gateway
+SupplementaryGroups=nginx
+WorkingDirectory=/var/lib/gateway-core
+Environment=GATEWAY_LISTEN=127.0.0.1:8080
+Environment=GATEWAY_DB=/var/lib/gateway-core/gateway.db
+Environment=GATEWAY_ADMIN_HOST=gateway-admin.sabzevar.ir
+Environment=GATEWAY_ADMIN_USER=admin
+EnvironmentFile=-/etc/gateway-core.env
+ExecStart=/usr/local/bin/gateway-core
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+echo "==> sudoers برای reload Nginx از پنل"
+cat > /etc/sudoers.d/gateway-core <<'EOF'
+Defaults:gateway !requiretty
+gateway ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /usr/sbin/nginx -s reload
+EOF
+chmod 440 /etc/sudoers.d/gateway-core
+if ! visudo -cf /etc/sudoers.d/gateway-core >/dev/null; then
+  echo "sudoers نامعتبر است" >&2
+  exit 1
+fi
+
+if [[ "${SKIP_NGINX:-0}" != "1" ]]; then
+  echo "==> گواهی TLS"
+  mkdir -p "${CERT_DIR}"
+  if [[ ! -f "${CERT_FILE}" || ! -f "${KEY_FILE}" ]]; then
+    openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+      -keyout "${KEY_FILE}" -out "${CERT_FILE}" \
+      -subj "/CN=*.sabzevar.ir" >/dev/null 2>&1
+    echo "گواهی خودامضا ساخته شد (${CERT_DIR}). بعداً با Let's Encrypt عوض کنید."
+  else
+    echo "گواهی موجود استفاده شد: ${CERT_FILE}"
+  fi
+  chmod 640 "${KEY_FILE}" "${CERT_FILE}"
+  chown root:nginx "${KEY_FILE}" "${CERT_FILE}" || chown root:root "${KEY_FILE}" "${CERT_FILE}"
+
+  rm -f /etc/nginx/conf.d/gateway.conf
+  if [[ ! -f "${NGINX_MANAGED}" ]]; then
+    cat > "${NGINX_MANAGED}" <<EOF
+# bootstrap — پنل می‌تواند این فایل را بازنویسی کند
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+upstream gateway_core {
+    server 127.0.0.1:8080;
+    keepalive 32;
+}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir ${ADMIN_HOST} apisrv-gateway137.sabzevar.ir;
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir ${ADMIN_HOST} apisrv-gateway137.sabzevar.ir;
+    ssl_certificate     ${CERT_FILE};
+    ssl_certificate_key ${KEY_FILE};
+    client_max_body_size 20m;
+    location / {
+        proxy_pass http://gateway_core;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_buffering off;
+    }
+}
+EOF
+  fi
+  chown gateway:nginx "${NGINX_MANAGED}" 2>/dev/null || chown gateway:gateway "${NGINX_MANAGED}"
+  chmod 640 "${NGINX_MANAGED}"
+  restorecon -v "${NGINX_MANAGED}" >/dev/null 2>&1 || true
+  nginx -t
+  systemctl enable --now nginx
+  systemctl reload nginx
+fi
+
+if [[ "${SKIP_FIREWALL:-0}" != "1" ]]; then
+  echo "==> فایروال و SELinux"
+  firewall-cmd --permanent --add-service=http >/dev/null
+  firewall-cmd --permanent --add-service=https >/dev/null
+  firewall-cmd --reload >/dev/null
+  setsebool -P httpd_can_network_connect 1 || true
+fi
+
+echo "==> سرویس gateway-core"
+systemctl daemon-reload
+systemctl enable --now gateway-core
+sleep 1
+systemctl --no-pager --full status gateway-core || true
+
+echo
+echo "نصب تمام شد."
+echo "  پنل:  https://${ADMIN_HOST}/   یا   http://127.0.0.1:8080/_admin/"
+echo "  کاربر: admin"
+echo "  رمز:   داخل ${ENV_FILE}  (GATEWAY_ADMIN_PASSWORD)"
+echo "  Nginx managed: ${NGINX_MANAGED}"
+echo
+echo "اگر گواهی خودامضا است، مرورگر هشدار می‌دهد؛ با certbot عوض کنید."

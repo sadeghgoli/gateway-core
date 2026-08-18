@@ -1,0 +1,22 @@
+[Unit]
+Description=Sabzevar Gateway Core
+After=network.target
+
+[Service]
+Type=simple
+User=gateway
+Group=gateway
+WorkingDirectory=/var/lib/gateway-core
+Environment=GATEWAY_LISTEN=127.0.0.1:8080
+Environment=GATEWAY_DB=/var/lib/gateway-core/gateway.db
+Environment=GATEWAY_ADMIN_HOST=gateway-admin.sabzevar.ir
+Environment=GATEWAY_ADMIN_USER=admin
+EnvironmentFile=-/etc/gateway-core.env
+ExecStart=/usr/local/bin/gateway-core
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+SupplementaryGroups=nginx
+
+[Install]
+WantedBy=multi-user.target

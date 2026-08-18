@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>کاتالوگ مسیریابی Gateway Core</title>
+  <style>
+    body { font-family: Tahoma, sans-serif; margin: 32px; color: #111; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: right; vertical-align: top; }
+    th { background: #eee; }
+    pre { background: #f6f6f6; padding: 12px; overflow: auto; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <button onclick="window.print()">چاپ / PDF</button>
+  <h1>کاتالوگ مسیریابی</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>دامنه گیت‌وی</th><th>الگوی path</th><th>سرویس مقصد</th>
+        <th>پارامتر</th><th>نمونه</th><th>پاسخ</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>map-gateway.sabzevar.ir</td>
+        <td>/*</td>
+        <td>https://geo.sabzevar.ir</td>
+        <td>X-Forwarded-Gateway=map</td>
+        <td>curl -I https://map-gateway.sabzevar.ir/</td>
+        <td>پاسخ geo</td>
+      </tr>
+      <tr>
+        <td>apisrv-gatewaylogin.sabzevar.ir</td>
+        <td>/*</td>
+        <td>https://apisrv.sabzevar.ir</td>
+        <td>Cookie/Authorization ؛ Location بازنویسی</td>
+        <td>curl -i https://apisrv-gatewaylogin.sabzevar.ir/auth/login</td>
+        <td>پاسخ لاگین روی دامنه گیت‌وی</td>
+      </tr>
+      <tr>
+        <td>gateway-admin.sabzevar.ir</td>
+        <td>/</td>
+        <td>پنل gateway-core</td>
+        <td>نشست ادمین</td>
+        <td>مرورگر</td>
+        <td>UI فارسی</td>
+      </tr>
+    </tbody>
+  </table>
+  <h2>نمونه نقشه</h2>
+  <pre>curl -sI https://map-gateway.sabzevar.ir/
+curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8080/</pre>
+</body>
+</html>

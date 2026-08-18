@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gateway Core</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="login-view" class="login-card">
+    <h1>Gateway Core</h1>
+    <p class="muted">ورود به پنل مدیریت دامنه، پورت و Nginx</p>
+    <label>نام کاربری</label>
+    <input id="user" autocomplete="username" />
+    <label>رمز عبور</label>
+    <input id="pass" type="password" autocomplete="current-password" />
+    <button id="login-btn">ورود</button>
+    <div id="login-err" class="err"></div>
+  </div>
+
+  <div id="app" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="logo"></span>
+        <div>
+          <strong>Gateway Core</strong>
+          <div class="muted">اتصال دامنه به سرویس / پورت محلی</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span><i class="dot up"></i> وصل</span>
+        <span><i class="dot degraded"></i> ناپایدار</span>
+        <span><i class="dot down"></i> قطع</span>
+        <span><i class="dot unknown"></i> نامشخص</span>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="btn-health">بررسی سلامت</button>
+        <button class="secondary" id="btn-nginx">تنظیمات Nginx</button>
+        <button id="btn-new">اتصال جدید</button>
+        <button class="secondary" id="logout">خروج</button>
+      </div>
+    </header>
+    <div class="workspace nodrawer">
+      <aside class="rail">
+        <button class="rail-btn active" data-tab="canvas" title="گراف">گراف</button>
+        <button class="rail-btn" data-tab="list" title="لیست">لیست</button>
+        <button class="rail-btn" data-tab="queue" title="صف">صف</button>
+      </aside>
+      <main>
+        <section id="tab-canvas" class="tab">
+          <div id="canvas-wrap">
+            <svg id="wires"></svg>
+            <div id="nodes"></div>
+          </div>
+        </section>
+        <section id="tab-list" class="tab hidden">
+          <div id="cards" class="cards"></div>
+        </section>
+        <section id="tab-queue" class="tab hidden">
+          <table>
+            <thead><tr><th>گیت‌وی</th><th>اجرا</th><th>صف</th><th>رد</th><th>سقف</th><th>RPS</th></tr></thead>
+            <tbody id="qbody"></tbody>
+          </table>
+        </section>
+      </main>
+      <aside id="drawer" class="drawer hidden"></aside>
+    </div>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>
