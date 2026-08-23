@@ -24,13 +24,24 @@ type Gateway struct {
 	ClientMaxBody    string     `json:"client_max_body"`
 	ProxyReadTimeout int        `json:"proxy_read_timeout"`
 	ProxySendTimeout int        `json:"proxy_send_timeout"`
-	NginxExtra       string     `json:"nginx_extra"`
-	HealthPath       string     `json:"health_path"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
-	Upstreams        []Upstream `json:"upstreams,omitempty"`
-	Routes           []Route    `json:"routes,omitempty"`
-	Stats            *Stats     `json:"stats,omitempty"`
+	NginxExtra       string        `json:"nginx_extra"`
+	HealthPath       string        `json:"health_path"`
+	AllowedOrigins   []string      `json:"allowed_origins"`
+	AccessTokens     []AccessToken `json:"access_tokens,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	Upstreams        []Upstream    `json:"upstreams,omitempty"`
+	Routes           []Route       `json:"routes,omitempty"`
+	Stats            *Stats        `json:"stats,omitempty"`
+}
+
+type AccessToken struct {
+	ID        string    `json:"id"`
+	GatewayID string    `json:"gateway_id,omitempty"`
+	Name      string    `json:"name"`
+	Token     string    `json:"token"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Upstream struct {

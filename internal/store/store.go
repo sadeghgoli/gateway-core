@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -126,10 +128,21 @@ func (s *Store) migrateExtra() error {
 		"ALTER TABLE upstreams ADD COLUMN target_port INTEGER NOT NULL DEFAULT 0",
 		"ALTER TABLE upstreams ADD COLUMN scheme TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE upstreams ADD COLUMN health_path TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE gateways ADD COLUMN allowed_origins TEXT NOT NULL DEFAULT '[]'",
 	}
 	for _, q := range cols {
 		_, _ = s.db.Exec(q)
 	}
+	_, _ = s.db.Exec(`
+CREATE TABLE IF NOT EXISTS access_tokens (
+  id TEXT PRIMARY KEY,
+  gateway_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  token TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(gateway_id) REFERENCES gateways(id) ON DELETE CASCADE
+);`)
 	return nil
 }
 
@@ -206,7 +219,7 @@ func (s *Store) CheckAdmin(username, password string) bool {
 }
 
 func (s *Store) ListGateways() ([]models.Gateway, error) {
-	rows, err := s.db.Query(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, created_at, updated_at FROM gateways ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, created_at, updated_at FROM gateways ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +246,7 @@ func (s *Store) ListGateways() ([]models.Gateway, error) {
 }
 
 func (s *Store) GetGateway(id string) (*models.Gateway, error) {
-	row := s.db.QueryRow(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, created_at, updated_at FROM gateways WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, created_at, updated_at FROM gateways WHERE id = ?`, id)
 	g, err := scanGateway(row)
 	if err != nil {
 		return nil, err
@@ -276,16 +289,18 @@ func (s *Store) SaveGateway(g models.Gateway) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	originsJSON, _ := json.Marshal(cleanOrigins(g.AllowedOrigins))
 	_, err = tx.Exec(`
-INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, created_at, updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, created_at, updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   name=excluded.name, host=excluded.host, enabled=excluded.enabled, lb_strategy=excluded.lb_strategy,
   max_concurrency=excluded.max_concurrency, queue_size=excluded.queue_size, queue_timeout_ms=excluded.queue_timeout_ms,
   rps=excluded.rps, sensitive=excluded.sensitive, cors_allow_origin=excluded.cors_allow_origin,
   websocket=excluded.websocket, client_max_body=excluded.client_max_body, proxy_read_timeout=excluded.proxy_read_timeout,
-  proxy_send_timeout=excluded.proxy_send_timeout, nginx_extra=excluded.nginx_extra, health_path=excluded.health_path, updated_at=excluded.updated_at
-`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, rfc(g.CreatedAt), rfc(g.UpdatedAt))
+  proxy_send_timeout=excluded.proxy_send_timeout, nginx_extra=excluded.nginx_extra, health_path=excluded.health_path,
+  allowed_origins=excluded.allowed_origins, updated_at=excluded.updated_at
+`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, string(originsJSON), rfc(g.CreatedAt), rfc(g.UpdatedAt))
 	if err != nil {
 		return err
 	}
@@ -319,6 +334,46 @@ ON CONFLICT(id) DO UPDATE SET
 		sh, _ := json.Marshal(r.SetHeaders)
 		if _, err := tx.Exec(`INSERT INTO routes(id, gateway_id, path_prefix, path_regex, strip_prefix, add_prefix, set_query, remove_query, set_headers, priority) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 			r.ID, g.ID, r.PathPrefix, r.PathRegex, r.StripPrefix, r.AddPrefix, string(sq), string(rq), string(sh), r.Priority); err != nil {
+			return err
+		}
+	}
+	oldTok := map[string]string{}
+	trows, err := tx.Query(`SELECT id, token FROM access_tokens WHERE gateway_id = ?`, g.ID)
+	if err != nil {
+		return err
+	}
+	for trows.Next() {
+		var id, tok string
+		if err := trows.Scan(&id, &tok); err != nil {
+			trows.Close()
+			return err
+		}
+		oldTok[id] = tok
+	}
+	trows.Close()
+	if _, err := tx.Exec(`DELETE FROM access_tokens WHERE gateway_id = ?`, g.ID); err != nil {
+		return err
+	}
+	for _, t := range g.AccessTokens {
+		name := strings.TrimSpace(t.Name)
+		if name == "" {
+			continue
+		}
+		if t.ID == "" {
+			t.ID = uuid.NewString()
+		}
+		token := strings.TrimSpace(t.Token)
+		if token == "" {
+			token = oldTok[t.ID]
+		}
+		if token == "" {
+			token = randomToken()
+		}
+		if t.CreatedAt.IsZero() {
+			t.CreatedAt = now
+		}
+		if _, err := tx.Exec(`INSERT INTO access_tokens(id, gateway_id, name, token, enabled, created_at) VALUES(?,?,?,?,?,?)`,
+			t.ID, g.ID, name, token, boolInt(t.Enabled), rfc(t.CreatedAt)); err != nil {
 			return err
 		}
 	}
@@ -358,8 +413,9 @@ func (s *Store) GatewayStats(id string) (models.Stats, error) {
 }
 
 func (s *Store) insertGateway(g models.Gateway) error {
-	_, err := s.db.Exec(`INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, created_at, updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, rfc(g.CreatedAt), rfc(g.UpdatedAt))
+	originsJSON, _ := json.Marshal(cleanOrigins(g.AllowedOrigins))
+	_, err := s.db.Exec(`INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, created_at, updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, string(originsJSON), rfc(g.CreatedAt), rfc(g.UpdatedAt))
 	return err
 }
 
@@ -416,6 +472,22 @@ func (s *Store) loadChildren(g *models.Gateway) error {
 		}
 		g.Routes = append(g.Routes, r)
 	}
+	trows, err := s.db.Query(`SELECT id, gateway_id, name, token, enabled, created_at FROM access_tokens WHERE gateway_id = ? ORDER BY created_at`, g.ID)
+	if err != nil {
+		return err
+	}
+	defer trows.Close()
+	for trows.Next() {
+		var t models.AccessToken
+		var en int
+		var created string
+		if err := trows.Scan(&t.ID, &t.GatewayID, &t.Name, &t.Token, &en, &created); err != nil {
+			return err
+		}
+		t.Enabled = en == 1
+		t.CreatedAt, _ = time.Parse(time.RFC3339, created)
+		g.AccessTokens = append(g.AccessTokens, t)
+	}
 	return nil
 }
 
@@ -427,16 +499,49 @@ func scanGateway(sc scanner) (models.Gateway, error) {
 	var g models.Gateway
 	var en, sens, ws int
 	var created, updated string
-	err := sc.Scan(&g.ID, &g.Name, &g.Host, &en, &g.LBStrategy, &g.MaxConcurrency, &g.QueueSize, &g.QueueTimeoutMS, &g.RPS, &sens, &g.CORSAllowOrigin, &ws, &g.ClientMaxBody, &g.ProxyReadTimeout, &g.ProxySendTimeout, &g.NginxExtra, &g.HealthPath, &created, &updated)
+	var originsJSON string
+	err := sc.Scan(&g.ID, &g.Name, &g.Host, &en, &g.LBStrategy, &g.MaxConcurrency, &g.QueueSize, &g.QueueTimeoutMS, &g.RPS, &sens, &g.CORSAllowOrigin, &ws, &g.ClientMaxBody, &g.ProxyReadTimeout, &g.ProxySendTimeout, &g.NginxExtra, &g.HealthPath, &originsJSON, &created, &updated)
 	if err != nil {
 		return g, err
 	}
 	g.Enabled = en == 1
 	g.Sensitive = sens == 1
 	g.Websocket = ws == 1
+	if originsJSON != "" {
+		_ = json.Unmarshal([]byte(originsJSON), &g.AllowedOrigins)
+	}
+	if g.AllowedOrigins == nil {
+		g.AllowedOrigins = []string{}
+	}
 	g.CreatedAt, _ = time.Parse(time.RFC3339, created)
 	g.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
 	return g, nil
+}
+
+func cleanOrigins(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]struct{}{}
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		key := strings.ToLower(v)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func randomToken() string {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return uuid.NewString()
+	}
+	return hex.EncodeToString(b)
 }
 
 func boolInt(v bool) int {

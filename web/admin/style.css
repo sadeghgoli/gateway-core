@@ -64,17 +64,34 @@ header {
 main { position: relative; overflow: hidden; }
 .tab { height: 100%; }
 #canvas-wrap {
-  position: relative; height: 100%; overflow: auto;
-  background-image: radial-gradient(#2c2c3c 1px, transparent 1px);
-  background-size: 18px 18px;
+  position: relative; height: 100%; overflow: hidden;
+  cursor: grab; touch-action: none; user-select: none;
+  background: #12121a;
 }
-#wires { position: absolute; inset: 0; width: 1600px; height: 1200px; pointer-events: none; }
-#nodes { position: absolute; inset: 0; width: 1600px; height: 1200px; }
+#canvas-wrap.panning { cursor: grabbing; }
+#canvas-world {
+  position: absolute; left: 0; top: 0; width: 8000px; height: 6000px;
+  transform-origin: 0 0; will-change: transform;
+  background-image: radial-gradient(#2c2c3c 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+}
+#wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+#nodes { position: absolute; inset: 0; width: 100%; height: 100%; }
+#canvas-hud {
+  position: absolute; left: 12px; bottom: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(30,30,42,.92); border: 1px solid var(--line);
+  border-radius: 10px; padding: 6px;
+  pointer-events: auto; cursor: default; direction: ltr;
+}
+#canvas-hud button { min-width: 36px; padding: 6px 10px; }
+#zoom-pct { min-width: 48px; text-align: center; font-size: 12px; color: var(--muted); }
 .node {
   position: absolute; width: 260px; background: var(--node); border: 1px solid var(--line);
   border-radius: 10px; padding: 12px 12px 12px 16px; cursor: grab; user-select: none;
-  box-shadow: 0 10px 24px rgba(0,0,0,.28);
+  box-shadow: 0 10px 24px rgba(0,0,0,.28); touch-action: none;
 }
+.node.dragging { cursor: grabbing; z-index: 2; }
 .node::before {
   content: ""; position: absolute; right: 0; top: 12px; bottom: 12px; width: 4px; border-radius: 4px;
   background: var(--dom);
@@ -102,5 +119,7 @@ main { position: relative; overflow: hidden; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: right; padding: 10px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.tok { font-family: ui-monospace, Consolas, monospace; letter-spacing: .02em; }
+.tok-row { margin: 8px 0; }
 pre.cfg { background: #111; padding: 10px; overflow: auto; font-size: 11px; direction: ltr; text-align: left; max-height: 280px; }
 wire path { fill: none; stroke-width: 2.4; }

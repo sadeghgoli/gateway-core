@@ -51,8 +51,16 @@
       <main>
         <section id="tab-canvas" class="tab">
           <div id="canvas-wrap">
-            <svg id="wires"></svg>
-            <div id="nodes"></div>
+            <div id="canvas-world">
+              <svg id="wires"></svg>
+              <div id="nodes"></div>
+            </div>
+            <div id="canvas-hud">
+              <button type="button" class="secondary" id="zoom-out" title="کوچک">−</button>
+              <span id="zoom-pct">100%</span>
+              <button type="button" class="secondary" id="zoom-in" title="بزرگ">+</button>
+              <button type="button" class="secondary" id="zoom-fit" title="جا دادن در صفحه">جا دادن</button>
+            </div>
           </div>
         </section>
         <section id="tab-list" class="tab hidden">

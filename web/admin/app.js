@@ -16,8 +16,14 @@ async function api(path, opts = {}) {
 
 const loginView = document.getElementById("login-view");
 const app = document.getElementById("app");
+const NODE_W = 260;
+const NODE_H = 88;
 let graph = { nodes: [], edges: [] };
-let dragging = null;
+let view = { x: 64, y: 48, scale: 1 };
+let canvasInited = false;
+let drag = null;
+let pointers = new Map();
+let didFitOnce = false;
 
 document.getElementById("login-btn").onclick = async () => {
   document.getElementById("login-err").textContent = "";
@@ -48,6 +54,7 @@ async function boot() {
     await api("/me");
     loginView.classList.add("hidden");
     app.classList.remove("hidden");
+    initCanvas();
     await renderCanvas();
   } catch {
     loginView.classList.remove("hidden");
@@ -71,38 +78,227 @@ async function renderCanvas() {
       <h3>${esc(n.label)}</h3>
       <div class="muted">${esc(n.subtitle || "")}</div>
       <span class="badge ${n.status}">${statusFa[n.status] || n.status}</span>`;
-    el.onmousedown = (ev) => startDrag(ev, n, el);
-    el.onclick = (ev) => {
+    el.addEventListener("pointerdown", (ev) => onNodePointerDown(ev, n, el));
+    el.addEventListener("click", () => {
       if (el.dataset.dragged === "1") return;
       if (n.gateway_id) openGateway(n.gateway_id);
-    };
+    });
     box.appendChild(el);
   });
   drawWires();
+  applyView();
+  if (!didFitOnce && graph.nodes.length) {
+    didFitOnce = true;
+    fitView();
+  }
 }
 
-function startDrag(ev, n, el) {
+function initCanvas() {
+  if (canvasInited) return;
+  canvasInited = true;
+  const wrap = document.getElementById("canvas-wrap");
+  wrap.addEventListener("pointerdown", onCanvasPointerDown);
+  window.addEventListener("pointermove", onCanvasPointerMove);
+  window.addEventListener("pointerup", onCanvasPointerUp);
+  window.addEventListener("pointercancel", onCanvasPointerUp);
+  wrap.addEventListener("wheel", onCanvasWheel, { passive: false });
+  wrap.addEventListener("dblclick", (ev) => {
+    if (ev.target.closest(".node") || ev.target.closest("#canvas-hud")) return;
+    zoomAt(ev.clientX, ev.clientY, view.scale * 1.25);
+  });
+  wrap.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  document.getElementById("zoom-in").onclick = () => zoomAroundCenter(1.2);
+  document.getElementById("zoom-out").onclick = () => zoomAroundCenter(1 / 1.2);
+  document.getElementById("zoom-fit").onclick = () => fitView();
+  window.addEventListener("keydown", (ev) => {
+    if (app.classList.contains("hidden")) return;
+    if (ev.target && ["INPUT", "TEXTAREA", "SELECT"].includes(ev.target.tagName)) return;
+    if (ev.code === "Digit0" && (ev.ctrlKey || ev.metaKey)) {
+      ev.preventDefault();
+      fitView();
+    }
+  });
+}
+
+function applyView() {
+  const world = document.getElementById("canvas-world");
+  if (!world) return;
+  world.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  const pct = document.getElementById("zoom-pct");
+  if (pct) pct.textContent = Math.round(view.scale * 100) + "%";
+}
+
+function clampScale(s) {
+  return Math.min(3, Math.max(0.2, s));
+}
+
+function wrapRect() {
+  return document.getElementById("canvas-wrap").getBoundingClientRect();
+}
+
+function zoomAt(clientX, clientY, nextScale) {
+  const rect = wrapRect();
+  const s = clampScale(nextScale);
+  const wx = (clientX - rect.left - view.x) / view.scale;
+  const wy = (clientY - rect.top - view.y) / view.scale;
+  view.scale = s;
+  view.x = clientX - rect.left - wx * s;
+  view.y = clientY - rect.top - wy * s;
+  applyView();
+}
+
+function zoomAroundCenter(factor) {
+  const rect = wrapRect();
+  zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, view.scale * factor);
+}
+
+function fitView() {
+  const wrap = document.getElementById("canvas-wrap");
+  if (!wrap || !graph.nodes.length) {
+    view = { x: 64, y: 48, scale: 1 };
+    applyView();
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  graph.nodes.forEach((n) => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + NODE_W);
+    maxY = Math.max(maxY, n.y + NODE_H);
+  });
+  const pad = 72;
+  const bw = Math.max(maxX - minX, 1) + pad * 2;
+  const bh = Math.max(maxY - minY, 1) + pad * 2;
+  const s = clampScale(Math.min(wrap.clientWidth / bw, wrap.clientHeight / bh, 1.15));
+  view.scale = s;
+  view.x = (wrap.clientWidth - (minX + maxX) * s) / 2;
+  view.y = (wrap.clientHeight - (minY + maxY) * s) / 2;
+  applyView();
+}
+
+function onCanvasWheel(ev) {
+  if (ev.target.closest("#canvas-hud")) return;
+  ev.preventDefault();
+  const pinchZoom = ev.ctrlKey || ev.metaKey;
+  const trackpadPan = !pinchZoom && (Math.abs(ev.deltaX) > 0.5 || ev.shiftKey);
+  if (trackpadPan) {
+    view.x -= ev.shiftKey ? ev.deltaY : ev.deltaX;
+    view.y -= ev.shiftKey ? 0 : ev.deltaY;
+    applyView();
+    return;
+  }
+  zoomAt(ev.clientX, ev.clientY, view.scale * Math.exp(-ev.deltaY * 0.0018));
+}
+
+function onNodePointerDown(ev, n, el) {
   if (ev.button !== 0) return;
+  ev.stopPropagation();
+  ev.preventDefault();
+  el.setPointerCapture(ev.pointerId);
   el.dataset.dragged = "0";
-  dragging = { n, el, x: ev.clientX, y: ev.clientY, ox: n.x, oy: n.y };
-  window.onmousemove = (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - dragging.x;
-    const dy = e.clientY - dragging.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) el.dataset.dragged = "1";
-    n.x = Math.max(20, dragging.ox + dx);
-    n.y = Math.max(20, dragging.oy + dy);
-    el.style.left = n.x + "px";
-    el.style.top = n.y + "px";
+  drag = {
+    kind: "node",
+    id: ev.pointerId,
+    n,
+    el,
+    lastX: ev.clientX,
+    lastY: ev.clientY,
+    moved: false,
+  };
+}
+
+function onCanvasPointerDown(ev) {
+  if (ev.target.closest("#canvas-hud")) return;
+  if (ev.target.closest(".node")) return;
+  if (ev.button !== 0 && ev.button !== 1) return;
+  ev.preventDefault();
+  const wrap = document.getElementById("canvas-wrap");
+  wrap.setPointerCapture(ev.pointerId);
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pointers.size === 2) {
+    const pts = [...pointers.values()];
+    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    const mx = (pts[0].x + pts[1].x) / 2;
+    const my = (pts[0].y + pts[1].y) / 2;
+    const rect = wrapRect();
+    drag = {
+      kind: "pinch",
+      dist,
+      scale: view.scale,
+      wx: (mx - rect.left - view.x) / view.scale,
+      wy: (my - rect.top - view.y) / view.scale,
+    };
+    return;
+  }
+  wrap.classList.add("panning");
+  drag = { kind: "pan", lastX: ev.clientX, lastY: ev.clientY, moved: false };
+}
+
+function onCanvasPointerMove(ev) {
+  if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (!drag) return;
+  if (drag.kind === "pinch" && pointers.size >= 2) {
+    const pts = [...pointers.values()];
+    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    if (dist < 8 || drag.dist < 8) return;
+    const mx = (pts[0].x + pts[1].x) / 2;
+    const my = (pts[0].y + pts[1].y) / 2;
+    const s = clampScale(drag.scale * (dist / drag.dist));
+    const rect = wrapRect();
+    view.scale = s;
+    view.x = mx - rect.left - drag.wx * s;
+    view.y = my - rect.top - drag.wy * s;
+    applyView();
+    return;
+  }
+  if (drag.kind === "pan") {
+    const dx = ev.clientX - drag.lastX;
+    const dy = ev.clientY - drag.lastY;
+    if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+    view.x += dx;
+    view.y += dy;
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
+    applyView();
+    return;
+  }
+  if (drag.kind === "node" && drag.id === ev.pointerId) {
+    const dx = (ev.clientX - drag.lastX) / view.scale;
+    const dy = (ev.clientY - drag.lastY) / view.scale;
+    if (Math.abs(dx) + Math.abs(dy) > 0.5) {
+      drag.moved = true;
+      drag.el.dataset.dragged = "1";
+      drag.el.classList.add("dragging");
+    }
+    drag.n.x = Math.max(8, drag.n.x + dx);
+    drag.n.y = Math.max(8, drag.n.y + dy);
+    drag.el.style.left = drag.n.x + "px";
+    drag.el.style.top = drag.n.y + "px";
+    drag.lastX = ev.clientX;
+    drag.lastY = ev.clientY;
     drawWires();
-  };
-  window.onmouseup = async () => {
-    window.onmousemove = null;
-    window.onmouseup = null;
-    if (!dragging) return;
-    await api("/layout", { method: "POST", body: JSON.stringify(graph.nodes.map((x) => ({ id: x.id, x: x.x, y: x.y }))) });
-    dragging = null;
-  };
+  }
+}
+
+async function onCanvasPointerUp(ev) {
+  pointers.delete(ev.pointerId);
+  const wrap = document.getElementById("canvas-wrap");
+  wrap.classList.remove("panning");
+  if (drag && drag.kind === "pinch") {
+    if (pointers.size < 2) drag = pointers.size === 1 ? { kind: "pan", lastX: [...pointers.values()][0].x, lastY: [...pointers.values()][0].y, moved: true } : null;
+    return;
+  }
+  if (drag && drag.kind === "node" && drag.id === ev.pointerId) {
+    drag.el.classList.remove("dragging");
+    if (drag.moved) {
+      try {
+        await api("/layout", { method: "POST", body: JSON.stringify(graph.nodes.map((x) => ({ id: x.id, x: x.x, y: x.y }))) });
+      } catch { /* ignore */ }
+    }
+    drag = null;
+    return;
+  }
+  if (drag && drag.kind === "pan") drag = null;
 }
 
 function drawWires() {
@@ -125,6 +321,7 @@ function blankGateway() {
     max_concurrency: 100, queue_size: 200, queue_timeout_ms: 5000, rps: 0,
     sensitive: false, cors_allow_origin: "", websocket: true, client_max_body: "20m",
     proxy_read_timeout: 120, proxy_send_timeout: 120, nginx_extra: "", health_path: "/",
+    allowed_origins: [], access_tokens: [],
     upstreams: [{ kind: "local", target_host: "127.0.0.1", target_port: 8081, scheme: "http", url: "", weight: 1, enabled: true, health_path: "/" }],
     routes: [{ path_prefix: "/", path_regex: "", strip_prefix: "", add_prefix: "", set_query: {}, remove_query: [], set_headers: { "X-Forwarded-Gateway": "" }, priority: 0 }],
   };
@@ -158,6 +355,12 @@ function editGateway(g) {
     </label>
     <label>مسیر سلامت</label><input id="e-hp" value="${esc(g.health_path || "/")}" />
     <label>CORS</label><input id="e-cors" value="${esc(g.cors_allow_origin || "")}" />
+    <h3>چه کسی اجازه استفاده دارد</h3>
+    <p class="muted">اگر خالی بماند همه می‌توانند. اگر دامنه یا توکن بگذارید، درخواست باید از همان سایت بیاید یا توکن معتبر داشته باشد (یکی کافی است).</p>
+    <label>دامنه‌های مجاز وب (هر خط یکی)</label>
+    <textarea id="e-origins" rows="3" placeholder="map.sabzevar.ir&#10;*.myapp.ir">${esc((g.allowed_origins || []).join("\n"))}</textarea>
+    <div id="toks"></div>
+    <button class="secondary" id="add-tok" type="button">+ توکن اپلیکیشن</button>
     <h3>مقصدها</h3>
     <p class="muted">local یعنی دامنه به پورت همین سرور وصل می‌شود. remote یعنی دامنه/URL دیگر.</p>
     <div id="ups"></div>
@@ -199,6 +402,35 @@ function editGateway(g) {
     });
   };
   renderUps();
+  const toks = (g.access_tokens && g.access_tokens.length) ? g.access_tokens.map((t) => ({ ...t })) : [];
+  const toksBox = document.getElementById("toks");
+  const renderToks = () => {
+    toksBox.innerHTML = toks.map((t, i) => `
+      <div class="card tok-row">
+        <label>نام اپ / سرویس<input data-tn="${i}" value="${esc(t.name || "")}" placeholder="اپ اندروید نقشه" /></label>
+        <label>توکن API<input data-tt="${i}" class="tok" dir="ltr" value="${esc(t.token || "")}" /></label>
+        <div class="row">
+          <label><input data-te="${i}" type="checkbox" ${t.enabled !== false ? "checked" : ""}/> فعال</label>
+          <button class="secondary" type="button" data-tcopy="${i}">کپی</button>
+          <button class="secondary" type="button" data-tgen="${i}">تولید مجدد</button>
+          <button class="danger" type="button" data-tdel="${i}">حذف</button>
+        </div>
+      </div>`).join("") || `<p class="muted">هنوز توکنی نیست. برای اپ موبایل یا سرویس بک‌اند یک توکن بسازید.</p>`;
+    toksBox.querySelectorAll("[data-tcopy]").forEach((b) => {
+      b.onclick = () => navigator.clipboard.writeText(toks[+b.dataset.tcopy].token || "");
+    });
+    toksBox.querySelectorAll("[data-tgen]").forEach((b) => {
+      b.onclick = () => { toks[+b.dataset.tgen].token = newApiToken(); renderToks(); };
+    });
+    toksBox.querySelectorAll("[data-tdel]").forEach((b) => {
+      b.onclick = () => { toks.splice(+b.dataset.tdel, 1); renderToks(); };
+    });
+  };
+  renderToks();
+  document.getElementById("add-tok").onclick = () => {
+    toks.push({ id: "", name: "", token: newApiToken(), enabled: true });
+    renderToks();
+  };
   document.getElementById("add-up").onclick = () => {
     ups.push({ kind: "local", target_host: "127.0.0.1", target_port: 8082, scheme: "http", url: "", weight: 1, enabled: true });
     renderUps();
@@ -229,6 +461,13 @@ function editGateway(g) {
         lb_strategy: document.getElementById("e-lb").value,
         health_path: document.getElementById("e-hp").value,
         cors_allow_origin: document.getElementById("e-cors").value,
+        allowed_origins: document.getElementById("e-origins").value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+        access_tokens: toks.map((t, i) => ({
+          id: t.id || "",
+          name: toksBox.querySelector(`[data-tn="${i}"]`)?.value || t.name,
+          token: toksBox.querySelector(`[data-tt="${i}"]`)?.value || t.token,
+          enabled: toksBox.querySelector(`[data-te="${i}"]`)?.checked !== false,
+        })),
         nginx_extra: document.getElementById("e-nx").value,
         routes: JSON.parse(document.getElementById("e-rtj").value),
         upstreams: ups.map((_, i) => ({
@@ -353,6 +592,11 @@ function hideDrawer() {
 }
 function num(id) { return parseInt(document.getElementById(id).value, 10) || 0; }
 function esc(s) { return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;"); }
+function newApiToken() {
+  const a = new Uint8Array(24);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-setInterval(() => { if (!app.classList.contains("hidden")) renderCanvas().catch(() => {}); }, 15000);
+setInterval(() => { if (!app.classList.contains("hidden") && !drag) renderCanvas().catch(() => {}); }, 15000);
 boot();

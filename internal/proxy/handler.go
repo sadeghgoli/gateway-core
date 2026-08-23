@@ -1,4 +1,4 @@
-package proxy
+﻿package proxy
 
 import (
 	"log"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"sabzevar.ir/gateway-core/internal/access"
 	"sabzevar.ir/gateway-core/internal/models"
 	"sabzevar.ir/gateway-core/internal/queue"
 	"sabzevar.ir/gateway-core/internal/registry"
@@ -35,7 +36,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown or disabled gateway host", http.StatusNotFound)
 		return
 	}
+	if !access.Allowed(*gw, r) {
+		h.store.IncrRejected(gw.ID)
+		http.Error(w, "forbidden: this client is not allowed to use the gateway", http.StatusForbidden)
+		return
+	}
 	route := matchRoute(gw.Routes, r.URL.Path)
+	corsOrigin := access.CORSOrigin(*gw, r)
 	release, err := h.limiters.For(*gw).Acquire(r.Context())
 	if err != nil {
 		h.store.IncrRejected(gw.ID)
@@ -62,8 +69,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == http.MethodOptions && gw.CORSAllowOrigin != "" {
-		setCORS(w, gw.CORSAllowOrigin, r)
+	if r.Method == http.MethodOptions && corsOrigin != "" {
+		setCORS(w, corsOrigin, r)
 		w.WriteHeader(http.StatusNoContent)
 		h.store.IncrCount(gw.ID)
 		h.selector.Report(up.ID, 0, nil)
@@ -90,6 +97,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.URL.Host = target.Host
 		req.Host = target.Host
 		applyRoute(req, route)
+		access.StripCredentialHeaders(req, *gw)
 		req.Header.Set("X-Forwarded-Host", origHost)
 		req.Header.Set("X-Forwarded-Proto", forwardedProto(r))
 		req.Header.Set("X-Forwarded-Gateway", gw.Host)
@@ -100,8 +108,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rp.ModifyResponse = func(resp *http.Response) error {
 		rewriteLocation(resp, target, origHost, forwardedProto(r))
 		rewriteCookies(resp, target.Hostname(), origHost)
-		if gw.CORSAllowOrigin != "" {
-			resp.Header.Set("Access-Control-Allow-Origin", gw.CORSAllowOrigin)
+		if corsOrigin != "" {
+			resp.Header.Set("Access-Control-Allow-Origin", corsOrigin)
 			resp.Header.Set("Access-Control-Allow-Credentials", "true")
 		}
 		return nil
@@ -208,7 +216,7 @@ func setCORS(w http.ResponseWriter, origin string, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Allow-Headers", r.Header.Get("Access-Control-Request-Headers"))
 	if w.Header().Get("Access-Control-Allow-Headers") == "" {
-		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Gateway-Token, X-Api-Key")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 }
