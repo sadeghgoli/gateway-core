@@ -144,6 +144,7 @@ if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
   echo "==> ساخت باینری"
   (cd "${REPO_ROOT}" && go build -o /tmp/gateway-core ./cmd/gateway)
   install -m 0755 /tmp/gateway-core "${BIN_PATH}"
+  restorecon -v "${BIN_PATH}" >/dev/null 2>&1 || chcon -t bin_t "${BIN_PATH}" >/dev/null 2>&1 || true
   rm -f /tmp/gateway-core
 elif [[ ! -x "${BIN_PATH}" ]]; then
   echo "SKIP_BUILD=1 است ولی ${BIN_PATH} وجود ندارد." >&2
@@ -243,6 +244,20 @@ map \$http_upgrade \$connection_upgrade {
 upstream gateway_core {
     server 127.0.0.1:8002;
     keepalive 32;
+}
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    client_max_body_size 2m;
+    location / {
+        proxy_pass http://gateway_core;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
 }
 server {
     listen 80;

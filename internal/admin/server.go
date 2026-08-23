@@ -89,9 +89,15 @@ func (s *Server) serveWeb(_ string) http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		if r.URL.Path == "/" || r.URL.Path == "" {
-			r = r.Clone(r.Context())
-			r.URL.Path = "/index.html"
+		if r.URL.Path == "/" || r.URL.Path == "" || r.URL.Path == "/index.html" {
+			body, err := fs.ReadFile(s.web, "index.html")
+			if err != nil {
+				http.Error(w, "ui missing", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write(body)
+			return
 		}
 		fileServer.ServeHTTP(w, r)
 	}

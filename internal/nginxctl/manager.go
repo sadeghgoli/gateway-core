@@ -74,6 +74,22 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 	b.WriteString("# managed by gateway-core — do not edit by hand\n")
 	b.WriteString("map $http_upgrade $connection_upgrade {\n    default upgrade;\n    ''      close;\n}\n\n")
 	b.WriteString("upstream gateway_core {\n    server " + settings.GatewayUpstream + ";\n    keepalive 32;\n}\n\n")
+	b.WriteString(fmt.Sprintf(`server {
+    listen %d default_server;
+    listen [::]:%d default_server;
+    server_name _;
+    client_max_body_size 2m;
+    location / {
+        proxy_pass http://gateway_core;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+`, settings.ListenHTTP, settings.ListenHTTP))
 
 	hosts := make([]string, 0, len(gateways)+1)
 	seen := map[string]bool{}
