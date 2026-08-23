@@ -130,8 +130,17 @@ ensure_go() {
   rm -rf "${tmp}"
 }
 
+# proxy.golang.org به storage.googleapis.com می‌رود و از ایران اغلب 403 می‌شود.
+setup_go_modules() {
+  export GOTOOLCHAIN="${GOTOOLCHAIN:-local}"
+  export GOPROXY="${GOPROXY:-https://goproxy.cn,https://goproxy.io,https://mirrors.aliyun.com/goproxy,direct}"
+  export GOSUMDB="${GOSUMDB:-off}"
+  echo "==> GOPROXY=${GOPROXY}"
+}
+
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
   ensure_go
+  setup_go_modules
   echo "==> ساخت باینری"
   (cd "${REPO_ROOT}" && go build -o /tmp/gateway-core ./cmd/gateway)
   install -m 0755 /tmp/gateway-core "${BIN_PATH}"

@@ -15,6 +15,14 @@ sudo ADMIN_PASSWORD='رمز-قوی' ADMIN_HOST=gateway-admin.sabzevar.ir bash de
 sudo SKIP_BUILD=1 bash deploy/install-almalinux.sh   # اگر باینری از قبل نصب است
 ```
 
+اگر `go build` خطای `403 Forbidden` از `proxy.golang.org` داد، اسکریپت از آینه `goproxy.cn` استفاده می‌کند. دستی:
+
+```bash
+export GOPROXY=https://goproxy.cn,direct
+export GOSUMDB=off
+export GOTOOLCHAIN=local
+```
+
 ---
 
 نصب دستی (اگر اسکریپت نمی‌خواهید):

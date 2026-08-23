@@ -42,5 +42,13 @@ go run ./cmd/gateway
 sudo bash deploy/install-almalinux.sh
 ```
 
+اگر `go build` روی سرور از `proxy.golang.org` خطای 403 گرفت، اسکریپت به‌صورت پیش‌فرض از آینه (`goproxy.cn`) استفاده می‌کند. دستی:
+
+```bash
+export GOPROXY=https://goproxy.cn,direct
+export GOSUMDB=off
+export GOTOOLCHAIN=local
+```
+
 جزئیات و نصب دستی: [deploy/README.md](deploy/README.md).
 
