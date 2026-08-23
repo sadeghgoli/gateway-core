@@ -19,12 +19,12 @@ export GATEWAY_ADMIN_PASSWORD=changeme
 go run ./cmd/gateway
 ```
 
-- پنل: http://127.0.0.1:8002/_admin/  (کاربر `admin`)
+- پنل: http://IP-سرور:8002/_admin/  (کاربر `admin`)
 - برای تست Host: `curl -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/`
 
 ## متغیرهای محیطی
 
-- `GATEWAY_LISTEN` پیش‌فرض `:8002`
+- `GATEWAY_LISTEN` پیش‌فرض `0.0.0.0:8002`
 - `GATEWAY_DB` پیش‌فرض `./data/gateway.db`
 - `GATEWAY_ADMIN_HOST` پیش‌فرض `gateway-admin.sabzevar.ir`
 - `GATEWAY_ADMIN_USER` / `GATEWAY_ADMIN_PASSWORD`

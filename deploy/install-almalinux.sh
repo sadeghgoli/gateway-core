@@ -168,7 +168,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 GATEWAY_ADMIN_USER=admin
 GATEWAY_ADMIN_PASSWORD=${PASS}
 GATEWAY_ADMIN_HOST=${ADMIN_HOST}
-GATEWAY_LISTEN=127.0.0.1:8002
+GATEWAY_LISTEN=0.0.0.0:8002
 GATEWAY_DB=${DATA_DIR}/gateway.db
 GATEWAY_NGINX_CONF=${NGINX_MANAGED}
 GATEWAY_NGINX_TEST=sudo /usr/sbin/nginx -t
@@ -193,7 +193,7 @@ User=gateway
 Group=gateway
 SupplementaryGroups=nginx
 WorkingDirectory=/var/lib/gateway-core
-Environment=GATEWAY_LISTEN=127.0.0.1:8002
+Environment=GATEWAY_LISTEN=0.0.0.0:8002
 Environment=GATEWAY_DB=/var/lib/gateway-core/gateway.db
 Environment=GATEWAY_ADMIN_HOST=gateway-admin.sabzevar.ir
 Environment=GATEWAY_ADMIN_USER=admin
@@ -286,6 +286,7 @@ if [[ "${SKIP_FIREWALL:-0}" != "1" ]]; then
   echo "==> فایروال و SELinux"
   firewall-cmd --permanent --add-service=http >/dev/null
   firewall-cmd --permanent --add-service=https >/dev/null
+  firewall-cmd --permanent --add-port=8002/tcp >/dev/null
   firewall-cmd --reload >/dev/null
   setsebool -P httpd_can_network_connect 1 || true
 fi
@@ -298,7 +299,7 @@ systemctl --no-pager --full status gateway-core || true
 
 echo
 echo "نصب تمام شد."
-echo "  پنل:  https://${ADMIN_HOST}/   یا   http://127.0.0.1:8002/_admin/"
+echo "  پنل:  https://${ADMIN_HOST}/   یا   http://<IP-سرور>:8002/_admin/"
 echo "  کاربر: admin"
 echo "  رمز:   داخل ${ENV_FILE}  (GATEWAY_ADMIN_PASSWORD)"
 echo "  Nginx managed: ${NGINX_MANAGED}"

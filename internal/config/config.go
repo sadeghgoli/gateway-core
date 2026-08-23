@@ -25,7 +25,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Listen:           env("GATEWAY_LISTEN", ":8002"),
+		Listen:           env("GATEWAY_LISTEN", "0.0.0.0:8002"),
 		DBPath:           env("GATEWAY_DB", "./data/gateway.db"),
 		AdminHost:        strings.ToLower(env("GATEWAY_ADMIN_HOST", "gateway-admin.sabzevar.ir")),
 		AdminUser:        env("GATEWAY_ADMIN_USER", "admin"),
