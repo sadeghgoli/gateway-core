@@ -6,6 +6,14 @@
 sudo bash deploy/install-almalinux.sh
 ```
 
+اگر پنل ادمین باید روی HTTP پورت ۸۰۰۳ باشد (بدون SSL):
+
+```bash
+sudo bash deploy/apply-admin-http-8003.sh
+```
+
+بعد: `http://gateway-admin.sabzevar.ir:8003/`
+
 اسکریپت بسته‌ها، کاربر `gateway`، بیلد باینری، systemd، Nginx، گواهی (اگر نبود خودامضا)، فایروال، SELinux و sudoers ریلود Nginx را یکجا انجام می‌دهد.
 
 اختیاری:

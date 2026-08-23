@@ -262,14 +262,20 @@ server {
 server {
     listen 80;
     listen [::]:80;
-    server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir ${ADMIN_HOST} apisrv-gateway137.sabzevar.ir;
+    server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir apisrv-gateway137.sabzevar.ir;
     return 301 https://\$host\$request_uri;
+}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${ADMIN_HOST};
+    return 301 http://\$host:8003\$request_uri;
 }
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir ${ADMIN_HOST} apisrv-gateway137.sabzevar.ir;
+    server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir apisrv-gateway137.sabzevar.ir;
     ssl_certificate     ${CERT_FILE};
     ssl_certificate_key ${KEY_FILE};
     client_max_body_size 20m;
@@ -287,6 +293,20 @@ server {
         proxy_buffering off;
     }
 }
+server {
+    listen 8003;
+    listen [::]:8003;
+    server_name ${ADMIN_HOST};
+    client_max_body_size 2m;
+    location / {
+        proxy_pass http://gateway_core;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
 EOF
   fi
   chown gateway:nginx "${NGINX_MANAGED}" 2>/dev/null || chown gateway:gateway "${NGINX_MANAGED}"
@@ -302,8 +322,10 @@ if [[ "${SKIP_FIREWALL:-0}" != "1" ]]; then
   firewall-cmd --permanent --add-service=http >/dev/null
   firewall-cmd --permanent --add-service=https >/dev/null
   firewall-cmd --permanent --add-port=8002/tcp >/dev/null
+  firewall-cmd --permanent --add-port=8003/tcp >/dev/null
   firewall-cmd --reload >/dev/null
   setsebool -P httpd_can_network_connect 1 || true
+  semanage port -a -t http_port_t -p tcp 8003 2>/dev/null || semanage port -m -t http_port_t -p tcp 8003 2>/dev/null || true
 fi
 
 echo "==> سرویس gateway-core"
@@ -314,7 +336,7 @@ systemctl --no-pager --full status gateway-core || true
 
 echo
 echo "نصب تمام شد."
-echo "  پنل:  https://${ADMIN_HOST}/   یا   http://<IP-سرور>:8002/_admin/"
+echo "  پنل:  http://${ADMIN_HOST}:8003/   یا   http://<IP-سرور>:8002/"
 echo "  کاربر: admin"
 echo "  رمز:   داخل ${ENV_FILE}  (GATEWAY_ADMIN_PASSWORD)"
 echo "  Nginx managed: ${NGINX_MANAGED}"

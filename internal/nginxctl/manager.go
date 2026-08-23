@@ -36,6 +36,7 @@ func Defaults(cfg config.Config) models.NginxSettings {
 		ReloadCmd:        cfg.NginxReloadCmd,
 		ListenHTTP:       80,
 		ListenHTTPS:      443,
+		ListenAdminHTTPS: 8003,
 		SSLCert:          "/etc/pki/nginx/fullchain.pem",
 		SSLKey:           "/etc/pki/nginx/privkey.pem",
 		RedirectHTTP:     true,
@@ -53,6 +54,9 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 	}
 	if settings.ListenHTTPS <= 0 {
 		settings.ListenHTTPS = 443
+	}
+	if settings.ListenAdminHTTPS <= 0 {
+		settings.ListenAdminHTTPS = 8003
 	}
 	if settings.GatewayUpstream == "" {
 		settings.GatewayUpstream = "127.0.0.1:8002"
@@ -109,16 +113,21 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 			addHost(g.Host)
 		}
 	}
-	addHost(adminHost)
-	if len(hosts) == 0 {
+	if len(hosts) == 0 && (adminHost == "" || !hostRe.MatchString(adminHost)) {
 		return "", fmt.Errorf("هیچ دامنه‌ای برای Nginx تعریف نشده")
 	}
 
-	if settings.RedirectHTTP {
+	if settings.RedirectHTTP && len(hosts) > 0 {
 		b.WriteString("server {\n")
 		b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", settings.ListenHTTP, settings.ListenHTTP))
 		b.WriteString("    server_name " + strings.Join(hosts, " ") + ";\n")
 		b.WriteString("    return 301 https://$host$request_uri;\n}\n\n")
+	}
+	if settings.RedirectHTTP && adminHost != "" && hostRe.MatchString(adminHost) {
+		b.WriteString("server {\n")
+		b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", settings.ListenHTTP, settings.ListenHTTP))
+		b.WriteString("    server_name " + adminHost + ";\n")
+		b.WriteString(fmt.Sprintf("    return 301 http://$host:%d$request_uri;\n}\n\n", settings.ListenAdminHTTPS))
 	}
 
 	for _, g := range gateways {
@@ -172,13 +181,9 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 	}
 
 	if adminHost != "" && hostRe.MatchString(adminHost) {
-		b.WriteString("server {\n")
-		b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", settings.ListenHTTPS, settings.ListenHTTPS))
+		b.WriteString("# پنل ادمین — فعلاً HTTP بدون TLS\nserver {\n")
+		b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", settings.ListenAdminHTTPS, settings.ListenAdminHTTPS))
 		b.WriteString("    server_name " + adminHost + ";\n")
-		if settings.SSLCert != "" {
-			b.WriteString("    ssl_certificate     " + settings.SSLCert + ";\n")
-			b.WriteString("    ssl_certificate_key " + settings.SSLKey + ";\n")
-		}
 		b.WriteString("    client_max_body_size 2m;\n")
 		b.WriteString("    location / {\n")
 		b.WriteString("        proxy_pass http://gateway_core;\n")

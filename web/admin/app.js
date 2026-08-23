@@ -260,7 +260,8 @@ async function openNginx() {
     <label>دستور reload</label><input id="n-rel" value="${esc(ns.reload_cmd || "")}" />
     <div class="row">
       <label style="flex:1">پورت HTTP<input id="n-http" type="number" value="${ns.listen_http || 80}" /></label>
-      <label style="flex:1">پورت HTTPS<input id="n-https" type="number" value="${ns.listen_https || 443}" /></label>
+      <label style="flex:1">پورت HTTPS گیت‌وی‌ها<input id="n-https" type="number" value="${ns.listen_https || 443}" /></label>
+      <label style="flex:1">پورت پنل ادمین (HTTP)<input id="n-admin" type="number" value="${ns.listen_admin_https || 8003}" /></label>
     </div>
     <label>آدرس Go برای Nginx</label><input id="n-up" value="${esc(ns.gateway_upstream || "127.0.0.1:8002")}" />
     <label>گواهی</label><input id="n-cert" value="${esc(ns.ssl_cert || "")}" />
@@ -290,6 +291,7 @@ async function openNginx() {
     reload_cmd: document.getElementById("n-rel").value,
     listen_http: num("n-http"),
     listen_https: num("n-https"),
+    listen_admin_https: num("n-admin"),
     gateway_upstream: document.getElementById("n-up").value,
     ssl_cert: document.getElementById("n-cert").value,
     ssl_key: document.getElementById("n-key").value,

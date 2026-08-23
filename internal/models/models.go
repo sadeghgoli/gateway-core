@@ -143,6 +143,7 @@ type NginxSettings struct {
 	ReloadCmd        string `json:"reload_cmd"`
 	ListenHTTP       int    `json:"listen_http"`
 	ListenHTTPS      int    `json:"listen_https"`
+	ListenAdminHTTPS int    `json:"listen_admin_https"`
 	SSLCert          string `json:"ssl_cert"`
 	SSLKey           string `json:"ssl_key"`
 	RedirectHTTP     bool   `json:"redirect_http"`
