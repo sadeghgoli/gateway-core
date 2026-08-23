@@ -41,21 +41,51 @@ echo "==> نصب بسته‌ها"
 dnf install -y nginx firewalld openssl policycoreutils-python-utils tar gzip curl >/dev/null
 systemctl enable --now firewalld >/dev/null 2>&1 || true
 
+go_arch() {
+  case "$(uname -m)" in
+    x86_64) echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    *) echo amd64 ;;
+  esac
+}
+
+# go.dev/dl/FILE بدون ?download=true صفحه HTML است و curl -f خطای 404 می‌دهد.
+# فایل واقعی از dl.google.com می‌آید.
+download_go_tarball() {
+  local dest="$1" arch ver url
+  arch="$(go_arch)"
+  ver="$(curl -fsSL "https://go.dev/VERSION?m=text" 2>/dev/null | head -n1 || true)"
+  if [[ -z "${ver}" || "${ver}" != go1.* ]]; then
+    ver="go1.24.4"
+  fi
+  url="https://dl.google.com/go/${ver}.linux-${arch}.tar.gz"
+  echo "    دانلود ${url}"
+  if curl -fL --retry 3 --retry-delay 2 -o "${dest}" "${url}"; then
+    return 0
+  fi
+  url="https://go.dev/dl/${ver}.linux-${arch}.tar.gz?download=true"
+  echo "    تلاش دوم ${url}"
+  curl -fL --retry 3 --retry-delay 2 -o "${dest}" "${url}"
+}
+
 ensure_go() {
   if command -v go >/dev/null 2>&1; then
     local ver
     ver="$(go version | awk '{print $3}' | sed 's/go//')"
     if [[ "$(printf '%s\n' "1.22" "$ver" | sort -V | head -n1)" == "1.22" ]]; then
+      echo "==> Go موجود است: $(go version)"
       return 0
     fi
   fi
-  echo "==> نصب Go 1.22 (رسمی)"
+  echo "==> نصب Go (حداقل 1.22)"
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL "https://go.dev/dl/go1.22.12.linux-amd64.tar.gz" -o "${tmp}/go.tgz"
+  download_go_tarball "${tmp}/go.tgz"
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "${tmp}/go.tgz"
   ln -sfn /usr/local/go/bin/go /usr/local/bin/go
+  hash -r || true
+  go version
   rm -rf "${tmp}"
 }
 
