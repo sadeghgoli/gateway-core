@@ -168,12 +168,12 @@ if [[ ! -f "${ENV_FILE}" ]]; then
 GATEWAY_ADMIN_USER=admin
 GATEWAY_ADMIN_PASSWORD=${PASS}
 GATEWAY_ADMIN_HOST=${ADMIN_HOST}
-GATEWAY_LISTEN=127.0.0.1:8080
+GATEWAY_LISTEN=127.0.0.1:8002
 GATEWAY_DB=${DATA_DIR}/gateway.db
 GATEWAY_NGINX_CONF=${NGINX_MANAGED}
 GATEWAY_NGINX_TEST=sudo /usr/sbin/nginx -t
 GATEWAY_NGINX_RELOAD=sudo /usr/sbin/nginx -s reload
-GATEWAY_NGINX_UPSTREAM=127.0.0.1:8080
+GATEWAY_NGINX_UPSTREAM=127.0.0.1:8002
 EOF
   chmod 600 "${ENV_FILE}"
   echo "==> رمز پنل در ${ENV_FILE} نوشته شد"
@@ -193,7 +193,7 @@ User=gateway
 Group=gateway
 SupplementaryGroups=nginx
 WorkingDirectory=/var/lib/gateway-core
-Environment=GATEWAY_LISTEN=127.0.0.1:8080
+Environment=GATEWAY_LISTEN=127.0.0.1:8002
 Environment=GATEWAY_DB=/var/lib/gateway-core/gateway.db
 Environment=GATEWAY_ADMIN_HOST=gateway-admin.sabzevar.ir
 Environment=GATEWAY_ADMIN_USER=admin
@@ -241,7 +241,7 @@ map \$http_upgrade \$connection_upgrade {
     ''      close;
 }
 upstream gateway_core {
-    server 127.0.0.1:8080;
+    server 127.0.0.1:8002;
     keepalive 32;
 }
 server {
@@ -298,7 +298,7 @@ systemctl --no-pager --full status gateway-core || true
 
 echo
 echo "نصب تمام شد."
-echo "  پنل:  https://${ADMIN_HOST}/   یا   http://127.0.0.1:8080/_admin/"
+echo "  پنل:  https://${ADMIN_HOST}/   یا   http://127.0.0.1:8002/_admin/"
 echo "  کاربر: admin"
 echo "  رمز:   داخل ${ENV_FILE}  (GATEWAY_ADMIN_PASSWORD)"
 echo "  Nginx managed: ${NGINX_MANAGED}"

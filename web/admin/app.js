@@ -262,7 +262,7 @@ async function openNginx() {
       <label style="flex:1">پورت HTTP<input id="n-http" type="number" value="${ns.listen_http || 80}" /></label>
       <label style="flex:1">پورت HTTPS<input id="n-https" type="number" value="${ns.listen_https || 443}" /></label>
     </div>
-    <label>آدرس Go برای Nginx</label><input id="n-up" value="${esc(ns.gateway_upstream || "127.0.0.1:8080")}" />
+    <label>آدرس Go برای Nginx</label><input id="n-up" value="${esc(ns.gateway_upstream || "127.0.0.1:8002")}" />
     <label>گواهی</label><input id="n-cert" value="${esc(ns.ssl_cert || "")}" />
     <label>کلید</label><input id="n-key" value="${esc(ns.ssl_key || "")}" />
     <label><input id="n-redir" type="checkbox" ${ns.redirect_http ? "checked" : ""}/> ریدایرکت HTTP به HTTPS</label>

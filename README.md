@@ -19,18 +19,18 @@ export GATEWAY_ADMIN_PASSWORD=changeme
 go run ./cmd/gateway
 ```
 
-- پنل: http://127.0.0.1:8080/_admin/  (کاربر `admin`)
-- برای تست Host: `curl -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8080/`
+- پنل: http://127.0.0.1:8002/_admin/  (کاربر `admin`)
+- برای تست Host: `curl -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/`
 
 ## متغیرهای محیطی
 
-- `GATEWAY_LISTEN` پیش‌فرض `:8080`
+- `GATEWAY_LISTEN` پیش‌فرض `:8002`
 - `GATEWAY_DB` پیش‌فرض `./data/gateway.db`
 - `GATEWAY_ADMIN_HOST` پیش‌فرض `gateway-admin.sabzevar.ir`
 - `GATEWAY_ADMIN_USER` / `GATEWAY_ADMIN_PASSWORD`
 - `GATEWAY_NGINX_CONF` پیش‌فرض `/etc/nginx/conf.d/gateway-managed.conf`
 - `GATEWAY_NGINX_TEST` / `GATEWAY_NGINX_RELOAD` (برای رد شدن: `none`)
-- `GATEWAY_NGINX_UPSTREAM` پیش‌فرض `127.0.0.1:8080`
+- `GATEWAY_NGINX_UPSTREAM` پیش‌فرض `127.0.0.1:8002`
 
 پنل گراف اتصال دامنه→سرویس و وضعیت قطع/وصل را نشان می‌دهد. تنظیمات Nginx از همان پنل قابل پیش‌نمایش و اعمال است.
 

@@ -33,7 +33,7 @@ curl -sI "https://map-gateway.sabzevar.ir/tiles/1/2/3.png"
 تست روی خود سرور بدون DNS:
 
 ```bash
-curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8080/
+curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/
 ```
 
 ## نمونه لاگین

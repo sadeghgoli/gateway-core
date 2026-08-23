@@ -25,7 +25,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Listen:           env("GATEWAY_LISTEN", ":8080"),
+		Listen:           env("GATEWAY_LISTEN", ":8002"),
 		DBPath:           env("GATEWAY_DB", "./data/gateway.db"),
 		AdminHost:        strings.ToLower(env("GATEWAY_ADMIN_HOST", "gateway-admin.sabzevar.ir")),
 		AdminUser:        env("GATEWAY_ADMIN_USER", "admin"),
@@ -37,7 +37,7 @@ func Load() Config {
 		NginxConfPath:    env("GATEWAY_NGINX_CONF", "/etc/nginx/conf.d/gateway-managed.conf"),
 		NginxTestCmd:     env("GATEWAY_NGINX_TEST", "nginx -t"),
 		NginxReloadCmd:   env("GATEWAY_NGINX_RELOAD", "nginx -s reload"),
-		NginxGatewayAddr: env("GATEWAY_NGINX_UPSTREAM", "127.0.0.1:8080"),
+		NginxGatewayAddr: env("GATEWAY_NGINX_UPSTREAM", "127.0.0.1:8002"),
 	}
 }
 

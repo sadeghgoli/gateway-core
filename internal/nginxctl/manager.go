@@ -55,7 +55,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		settings.ListenHTTPS = 443
 	}
 	if settings.GatewayUpstream == "" {
-		settings.GatewayUpstream = "127.0.0.1:8080"
+		settings.GatewayUpstream = "127.0.0.1:8002"
 	}
 	if settings.ClientMaxBody == "" || !bodyRe.MatchString(settings.ClientMaxBody) {
 		settings.ClientMaxBody = "20m"
