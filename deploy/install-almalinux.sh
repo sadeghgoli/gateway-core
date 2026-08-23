@@ -49,38 +49,79 @@ go_arch() {
   esac
 }
 
-# go.dev/dl/FILE بدون ?download=true صفحه HTML است و curl -f خطای 404 می‌دهد.
-# فایل واقعی از dl.google.com می‌آید.
+# go1.27.0 در فهرست JSON هست ولی روی CDN هنوز 404 است. اول نسخه‌های قطعی را می‌گیریم.
+go_versions() {
+  printf '%s\n' go1.24.6 go1.23.8 go1.22.10 go1.26.7
+}
+
 download_go_tarball() {
-  local dest="$1" arch ver url
+  local dest="$1" arch file url ver
   arch="$(go_arch)"
-  ver="$(curl -fsSL "https://go.dev/VERSION?m=text" 2>/dev/null | head -n1 || true)"
-  if [[ -z "${ver}" || "${ver}" != go1.* ]]; then
-    ver="go1.24.4"
-  fi
-  url="https://dl.google.com/go/${ver}.linux-${arch}.tar.gz"
-  echo "    دانلود ${url}"
-  if curl -fL --retry 3 --retry-delay 2 -o "${dest}" "${url}"; then
-    return 0
-  fi
-  url="https://go.dev/dl/${ver}.linux-${arch}.tar.gz?download=true"
-  echo "    تلاش دوم ${url}"
-  curl -fL --retry 3 --retry-delay 2 -o "${dest}" "${url}"
+  local -a mirrors=(
+    "https://mirrors.aliyun.com/golang"
+    "https://cdn.npmmirror.com/binaries/go"
+    "https://mirrors.cloud.tencent.com/go"
+    "https://mirrors.ustc.edu.cn/golang"
+    "https://dl.google.com/go"
+  )
+  local -a versions
+  mapfile -t versions < <(go_versions "${arch}")
+  for ver in "${versions[@]}"; do
+    [[ "${ver}" == go1.* ]] || continue
+    file="${ver}.linux-${arch}.tar.gz"
+    for base in "${mirrors[@]}"; do
+      url="${base}/${file}"
+      echo "    امتحان ${url}"
+      if curl -fL --connect-timeout 20 --max-time 180 --retry 2 --retry-delay 1 -o "${dest}" "${url}"; then
+        if tar -tzf "${dest}" >/dev/null 2>&1; then
+          echo "    موفق: ${file}"
+          return 0
+        fi
+      fi
+      rm -f "${dest}"
+    done
+    url="https://go.dev/dl/${file}?download=true"
+    echo "    امتحان ${url}"
+    if curl -fL --connect-timeout 20 --max-time 180 -o "${dest}" "${url}"; then
+      if tar -tzf "${dest}" >/dev/null 2>&1; then
+        echo "    موفق: ${file}"
+        return 0
+      fi
+    fi
+    rm -f "${dest}"
+  done
+  return 1
+}
+
+go_ok() {
+  command -v go >/dev/null 2>&1 || return 1
+  local ver
+  ver="$(go version | awk '{print $3}' | sed 's/go//')"
+  [[ "$(printf '%s\n' "1.22" "$ver" | sort -V | head -n1)" == "1.22" ]]
 }
 
 ensure_go() {
-  if command -v go >/dev/null 2>&1; then
-    local ver
-    ver="$(go version | awk '{print $3}' | sed 's/go//')"
-    if [[ "$(printf '%s\n' "1.22" "$ver" | sort -V | head -n1)" == "1.22" ]]; then
-      echo "==> Go موجود است: $(go version)"
-      return 0
-    fi
+  if go_ok; then
+    echo "==> Go موجود است: $(go version)"
+    return 0
   fi
-  echo "==> نصب Go (حداقل 1.22)"
+  echo "==> تلاش برای Go از مخزن AlmaLinux"
+  dnf install -y golang >/dev/null 2>&1 || true
+  hash -r || true
+  if go_ok; then
+    echo "==> Go از dnf: $(go version)"
+    return 0
+  fi
+  echo "==> نصب Go از آینه (حداقل 1.22)"
   local tmp
   tmp="$(mktemp -d)"
-  download_go_tarball "${tmp}/go.tgz"
+  if ! download_go_tarball "${tmp}/go.tgz"; then
+    echo "دانلود Go شکست خورد. CDN گوگل/go.dev از این سرور در دسترس نیست یا نسخه روی CDN نیست." >&2
+    echo "راه‌حل: روی ماشین دیگر بیلد کنید و با SKIP_BUILD=1 اسکریپت را بزنید،" >&2
+    echo "یا tar رسمی را دستی در /usr/local/go باز کنید." >&2
+    rm -rf "${tmp}"
+    exit 1
+  fi
   rm -rf /usr/local/go
   tar -C /usr/local -xzf "${tmp}/go.tgz"
   ln -sfn /usr/local/go/bin/go /usr/local/bin/go
