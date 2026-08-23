@@ -12,7 +12,13 @@ sudo bash deploy/install-almalinux.sh
 sudo bash deploy/apply-admin-http-8003.sh
 ```
 
-بعد: `http://gateway-admin.sabzevar.ir:8003/`
+برای نصب گواهی `ssl/certificate.pfx` روی همه دامنه‌ها و پنل `https://gateway-admin.sabzevar.ir:8003/` :
+
+```bash
+sudo bash deploy/apply-ssl.sh
+```
+
+سپس پنل: `https://gateway-admin.sabzevar.ir:8003/`
 
 اسکریپت بسته‌ها، کاربر `gateway`، بیلد باینری، systemd، Nginx، گواهی (اگر نبود خودامضا)، فایروال، SELinux و sudoers ریلود Nginx را یکجا انجام می‌دهد.
 

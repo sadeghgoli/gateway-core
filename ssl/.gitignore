@@ -1,0 +1,6 @@
+ssl/*.pfx
+ssl/*.p12
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+!ssl/README.md

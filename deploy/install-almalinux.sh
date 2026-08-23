@@ -222,7 +222,20 @@ fi
 if [[ "${SKIP_NGINX:-0}" != "1" ]]; then
   echo "==> گواهی TLS"
   mkdir -p "${CERT_DIR}"
-  if [[ ! -f "${CERT_FILE}" || ! -f "${KEY_FILE}" ]]; then
+  PFX_CANDIDATE="${REPO_ROOT}/ssl/certificate.pfx"
+  if [[ -f "${PFX_CANDIDATE}" ]]; then
+    echo "استخراج ${PFX_CANDIDATE}"
+    PFX_PASSWORD="${PFX_PASSWORD:-12345}"
+    tmpd="$(mktemp -d)"
+    openssl pkcs12 -in "${PFX_CANDIDATE}" -passin "pass:${PFX_PASSWORD}" -nocerts -nodes -out "${tmpd}/key.pem" \
+      || openssl pkcs12 -in "${PFX_CANDIDATE}" -passin "pass:${PFX_PASSWORD}" -legacy -nocerts -nodes -out "${tmpd}/key.pem"
+    openssl pkcs12 -in "${PFX_CANDIDATE}" -passin "pass:${PFX_PASSWORD}" -nokeys -clcerts -out "${tmpd}/cert.pem" \
+      || openssl pkcs12 -in "${PFX_CANDIDATE}" -passin "pass:${PFX_PASSWORD}" -legacy -nokeys -clcerts -out "${tmpd}/cert.pem"
+    openssl pkcs12 -in "${PFX_CANDIDATE}" -passin "pass:${PFX_PASSWORD}" -nokeys -cacerts -out "${tmpd}/ca.pem" 2>/dev/null || true
+    if [[ -s "${tmpd}/ca.pem" ]]; then cat "${tmpd}/cert.pem" "${tmpd}/ca.pem" > "${CERT_FILE}"; else cp "${tmpd}/cert.pem" "${CERT_FILE}"; fi
+    cp "${tmpd}/key.pem" "${KEY_FILE}"
+    rm -rf "${tmpd}"
+  elif [[ ! -f "${CERT_FILE}" || ! -f "${KEY_FILE}" ]]; then
     openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
       -keyout "${KEY_FILE}" -out "${CERT_FILE}" \
       -subj "/CN=*.sabzevar.ir" >/dev/null 2>&1
@@ -269,7 +282,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${ADMIN_HOST};
-    return 301 http://\$host:8003\$request_uri;
+    return 301 https://\$host:8003\$request_uri;
 }
 server {
     listen 443 ssl;
@@ -294,9 +307,12 @@ server {
     }
 }
 server {
-    listen 8003;
-    listen [::]:8003;
+    listen 8003 ssl;
+    listen [::]:8003 ssl;
+    http2 on;
     server_name ${ADMIN_HOST};
+    ssl_certificate     ${CERT_FILE};
+    ssl_certificate_key ${KEY_FILE};
     client_max_body_size 2m;
     location / {
         proxy_pass http://gateway_core;
