@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -57,7 +58,7 @@ func main() {
 		if h, _, ok := strings.Cut(host, ":"); ok {
 			host = h
 		}
-		if host == cfg.AdminHost {
+		if host == cfg.AdminHost || isDirectAdminHost(host) {
 			adminHost.ServeHTTP(w, r)
 			return
 		}
@@ -93,6 +94,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
+}
+
+func isDirectAdminHost(host string) bool {
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	return net.ParseIP(host) != nil
 }
 
 func healthLoop(reg *registry.Registry, sel *upstream.Selector) {
