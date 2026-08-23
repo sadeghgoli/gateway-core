@@ -127,7 +127,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 			b.WriteString(g.Upstreams[0].EffectiveURL())
 		}
 		b.WriteString("\nserver {\n")
-		b.WriteString(fmt.Sprintf("    listen %d ssl http2;\n    listen [::]:%d ssl http2;\n", settings.ListenHTTPS, settings.ListenHTTPS))
+		b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", settings.ListenHTTPS, settings.ListenHTTPS))
 		b.WriteString("    server_name " + g.Host + ";\n")
 		if settings.SSLCert != "" {
 			b.WriteString("    ssl_certificate     " + settings.SSLCert + ";\n")
@@ -157,7 +157,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 
 	if adminHost != "" && hostRe.MatchString(adminHost) {
 		b.WriteString("server {\n")
-		b.WriteString(fmt.Sprintf("    listen %d ssl http2;\n    listen [::]:%d ssl http2;\n", settings.ListenHTTPS, settings.ListenHTTPS))
+		b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", settings.ListenHTTPS, settings.ListenHTTPS))
 		b.WriteString("    server_name " + adminHost + ";\n")
 		if settings.SSLCert != "" {
 			b.WriteString("    ssl_certificate     " + settings.SSLCert + ";\n")

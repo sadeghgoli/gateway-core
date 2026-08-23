@@ -251,8 +251,9 @@ server {
     return 301 https://\$host\$request_uri;
 }
 server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir ${ADMIN_HOST} apisrv-gateway137.sabzevar.ir;
     ssl_certificate     ${CERT_FILE};
     ssl_certificate_key ${KEY_FILE};
