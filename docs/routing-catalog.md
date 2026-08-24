@@ -6,7 +6,7 @@
 
 | دامنه گیت‌وی | الگوی path | سرویس مقصد | پارامتر / هدر | نمونه درخواست | پاسخ انتظاری |
 |---|---|---|---|---|---|
-| `map-gateway.sabzevar.ir` | `/*` | `https://geo.sabzevar.ir` | `X-Forwarded-Gateway=map` — path و query بدون تغییر | پایین | همان پاسخ geo |
+| `map-gateway.sabzevar.ir` | `/*` | `http://<maps-host>:7003` (map-api nginx) — پورت عمومی `:8004` | `X-Forwarded-Gateway=map` — path و `?key=` بدون تغییر؛ توکن gateway-core نگذارید | پایین | پاسخ map-api / Nest |
 | `apisrv-gatewaylogin.sabzevar.ir` | `/*` | `https://apisrv.sabzevar.ir` (پنل) | Cookie و Authorization فوروارد؛ Location به دامنه گیت‌وی | پایین | پاسخ لاگین بدون افشای URL داخلی |
 | `gateway-admin.sabzevar.ir` | `/` | خود gateway-core | نشست ادمین | مرورگر | پنل فارسی |
 | `apisrv-gateway137.sabzevar.ir` | `/*` (آینده) | از پنل | — | — | — |
@@ -15,25 +15,30 @@
 
 ## نمونه نقشه
 
+آپ‌ستریم: nginx استک **map-api** روی سرور نقشه (`NGINX_PORT=7003`). کلید را map-api صادر می‌کند (`?key=pk_...`)، نه access token گیت‌وی.
+
+پورت اختصاصی (بعد از `sudo bash deploy/apply-map-8004.sh`):
+
 ```bash
-curl -sI https://map-gateway.sabzevar.ir/
-# معادل منطقی:
-# GET https://geo.sabzevar.ir/
-# Header: Host: geo.sabzevar.ir
-# Header: X-Forwarded-Host: map-gateway.sabzevar.ir
-# Header: X-Forwarded-Gateway: map-gateway.sabzevar.ir
+sudo MAP_UPSTREAM='http://192.168.1.19:7003' bash deploy/apply-map-8004.sh
+curl -skI "https://map-gateway.sabzevar.ir:8004/api/v1/health"
+curl -skI "https://map-gateway.sabzevar.ir:8004/styles/style.json?key=pk_..."
 ```
 
-نمونه کاشی (اگر geo چنین مسیری داشته باشد):
+معادل منطقی:
 
-```bash
-curl -sI "https://map-gateway.sabzevar.ir/tiles/1/2/3.png"
+```
+GET http://192.168.1.19:7003/styles/style.json?key=pk_...
+Header: Host: <upstream host>
+Header: X-Forwarded-Host: map-gateway.sabzevar.ir
+Header: X-Forwarded-Gateway: map-gateway.sabzevar.ir
 ```
 
 تست روی خود سرور بدون DNS:
 
 ```bash
-curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/
+curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/api/v1/health
+curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8004/api/v1/health
 ```
 
 ## نمونه لاگین

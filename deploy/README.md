@@ -14,6 +14,14 @@ sudo bash deploy/apply-admin-8003.sh
 
 آدرس: `https://gateway-admin.sabzevar.ir:8003/`
 
+گیت‌وی نقشه روی پورت ۸۰۰۴ (آپ‌ستریم map-api روی سرور نقشه، معمولاً `:7003`):
+
+```bash
+sudo MAP_UPSTREAM='http://192.168.1.19:7003' bash deploy/apply-map-8004.sh
+```
+
+آدرس: `https://map-gateway.sabzevar.ir:8004/` — توکن دسترسی گیت‌وی نگذارید؛ کلاینت `?key=` مربوط به map-api می‌فرستد. اگر گواهی نباشد اسکریپت HTTP می‌شود (`MAP_SSL=0` اجباری).
+
 اسکریپت بسته‌ها، کاربر `gateway`، بیلد باینری، systemd، Nginx، گواهی (اگر نبود خودامضا)، فایروال، SELinux و sudoers ریلود Nginx را یکجا انجام می‌دهد.
 
 اختیاری:

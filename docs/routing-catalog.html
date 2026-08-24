@@ -26,10 +26,10 @@
       <tr>
         <td>map-gateway.sabzevar.ir</td>
         <td>/*</td>
-        <td>https://geo.sabzevar.ir</td>
-        <td>X-Forwarded-Gateway=map</td>
-        <td>curl -I https://map-gateway.sabzevar.ir/</td>
-        <td>پاسخ geo</td>
+        <td>http://&lt;maps-host&gt;:7003 (map-api) — :8004</td>
+        <td>X-Forwarded-Gateway=map ؛ ?key=pk_...</td>
+        <td>curl -I https://map-gateway.sabzevar.ir:8004/styles/style.json?key=pk_...</td>
+        <td>پاسخ map-api</td>
       </tr>
       <tr>
         <td>apisrv-gatewaylogin.sabzevar.ir</td>

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -197,6 +198,10 @@ func (s *Server) handleGateways(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "نام و دامنه الزامی است"})
 			return
 		}
+		if err := s.assignListenPort(&g); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 		if err := s.store.SaveGateway(g); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -204,11 +209,11 @@ func (s *Server) handleGateways(w http.ResponseWriter, r *http.Request) {
 		_ = s.reg.Reload()
 		if ns := s.loadNginx(); ns.AutoReload {
 			if err := s.applyNginx(ns); err != nil {
-				writeJSON(w, http.StatusOK, map[string]string{"ok": "1", "nginx_error": err.Error()})
+				writeJSON(w, http.StatusOK, map[string]any{"ok": "1", "listen_port": g.ListenPort, "nginx_error": err.Error()})
 				return
 			}
 		}
-		writeJSON(w, http.StatusOK, map[string]string{"ok": "1"})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": "1", "listen_port": g.ListenPort})
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
 		if id == "" {
@@ -276,7 +281,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 			st = "up"
 		}
 		gph.Nodes = append(gph.Nodes, withLayout(models.GraphNode{
-			ID: domID, Type: "domain", Label: g.Host, Subtitle: g.Name, Status: st, GatewayID: g.ID,
+			ID: domID, Type: "domain", Label: g.Host, Subtitle: domainSubtitle(g), Status: st, GatewayID: g.ID,
 			X: 80, Y: float64(80 + i*170),
 		}, layout))
 		for j, u := range g.Upstreams {
@@ -341,6 +346,10 @@ func (s *Server) handleNginxPreview(w http.ResponseWriter, r *http.Request) {
 	list, err := s.store.ListGateways()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := nginxctl.AssignGatewayPorts(ns, list, nginxctl.TCPPortFree); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	cfg, err := s.ngx.Render(ns, list, s.cfg.AdminHost)
@@ -415,11 +424,58 @@ func (s *Server) applyNginx(ns models.NginxSettings) error {
 	if err != nil {
 		return err
 	}
+	changed, err := nginxctl.AssignGatewayPorts(ns, list, nginxctl.TCPPortFree)
+	if err != nil {
+		return err
+	}
+	for id, port := range changed {
+		if err := s.store.SetListenPort(id, port); err != nil {
+			return err
+		}
+	}
 	cfg, err := s.ngx.Render(ns, list, s.cfg.AdminHost)
 	if err != nil {
 		return err
 	}
-	return s.ngx.Apply(ns, cfg)
+	if err := s.ngx.Apply(ns, cfg); err != nil {
+		return err
+	}
+	s.openFirewallPorts(list)
+	return nil
+}
+
+func (s *Server) assignListenPort(g *models.Gateway) error {
+	ns := s.loadNginx()
+	start, max := nginxctl.DomainPortRange(ns)
+	keep := 0
+	if g.ID != "" {
+		if existing, err := s.store.GetGateway(g.ID); err == nil && existing.ListenPort > 0 {
+			keep = existing.ListenPort
+			if g.ListenPort <= 0 {
+				g.ListenPort = existing.ListenPort
+			}
+		}
+	}
+	port, err := nginxctl.PickPort(start, max, g.ListenPort, s.store.UsedListenPorts(g.ID), nginxctl.ReservedPorts(ns), keep, nginxctl.TCPPortFree)
+	if err != nil {
+		return err
+	}
+	g.ListenPort = port
+	return nil
+}
+
+func (s *Server) openFirewallPorts(list []models.Gateway) {
+	seen := map[int]struct{}{}
+	for _, g := range list {
+		if !g.Enabled || g.ListenPort <= 0 {
+			continue
+		}
+		if _, ok := seen[g.ListenPort]; ok {
+			continue
+		}
+		seen[g.ListenPort] = struct{}{}
+		nginxctl.TryOpenHostPort(g.ListenPort)
+	}
 }
 
 func (s *Server) attachQueue(g *models.Gateway) {
@@ -430,6 +486,16 @@ func (s *Server) attachQueue(g *models.Gateway) {
 	g.Stats.Inflight = inf
 	g.Stats.Waiting = wait
 	g.Stats.QueueRej = rej
+}
+
+func domainSubtitle(g models.Gateway) string {
+	if g.ListenPort > 0 {
+		if g.Name != "" {
+			return fmt.Sprintf("%s  :%d", g.Name, g.ListenPort)
+		}
+		return fmt.Sprintf(":%d", g.ListenPort)
+	}
+	return g.Name
 }
 
 func withLayout(n models.GraphNode, layout map[string]models.LayoutPoint) models.GraphNode {

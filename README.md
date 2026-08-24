@@ -6,7 +6,7 @@
 
 | دامنه عمومی | مقصد |
 |---|---|
-| `map-gateway.sabzevar.ir` | `https://geo.sabzevar.ir` |
+| `map-gateway.sabzevar.ir` | `http://<maps-host>:7003` (map-api) — پورت عمومی `:8004` |
 | `apisrv-gatewaylogin.sabzevar.ir` | `https://apisrv.sabzevar.ir` (در پنل قابل تغییر) |
 | `gateway-admin.sabzevar.ir` | پنل مدیریت |
 
@@ -20,7 +20,7 @@ go run ./cmd/gateway
 ```
 
 - پنل: http://IP-سرور:8002/_admin/  (کاربر `admin`)
-- برای تست Host: `curl -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/`
+- برای تست Host: `curl -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/api/v1/health`
 
 ## متغیرهای محیطی
 
@@ -51,4 +51,11 @@ export GOTOOLCHAIN=local
 ```
 
 جزئیات و نصب دستی: [deploy/README.md](deploy/README.md).
+
+گیت‌وی نقشه پشت map-api:
+
+```bash
+sudo MAP_UPSTREAM='http://192.168.1.19:7003' bash deploy/apply-map-8004.sh
+KEY=pk_... bash deploy/verify-map-8004.sh
+```
 

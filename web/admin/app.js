@@ -337,6 +337,8 @@ function editGateway(g) {
     <h2 style="margin-top:0;">اتصال دامنه</h2>
     <label>نام</label><input id="e-name" value="${esc(g.name || "")}" />
     <label>دامنه عمومی</label><input id="e-host" value="${esc(g.host || "")}" placeholder="map-gateway.sabzevar.ir" />
+    <label>پورت عمومی Nginx<input id="e-lp" type="number" value="${g.listen_port || 0}" /></label>
+    <p class="muted">۰ یعنی از ۸۰۰۰ به بالا، اولین پورتی که روی سرور آزاد باشد انتخاب می‌شود (پورت‌های ۸۰/۴۴۳/۸۰۰۲/۸۰۰۳ رزرو هستند).</p>
     <label><input id="e-en" type="checkbox" ${g.enabled !== false ? "checked" : ""}/> فعال</label>
     <label><input id="e-sens" type="checkbox" ${g.sensitive ? "checked" : ""}/> حساس (لاگین)</label>
     <label><input id="e-ws" type="checkbox" ${g.websocket !== false ? "checked" : ""}/> WebSocket در Nginx</label>
@@ -448,6 +450,7 @@ function editGateway(g) {
         id: g.id || "",
         name: document.getElementById("e-name").value,
         host: document.getElementById("e-host").value,
+        listen_port: num("e-lp"),
         enabled: document.getElementById("e-en").checked,
         sensitive: document.getElementById("e-sens").checked,
         websocket: document.getElementById("e-ws").checked,
@@ -481,7 +484,7 @@ function editGateway(g) {
         })),
       };
       const res = await api("/gateways", { method: "POST", body: JSON.stringify(body) });
-      if (res.nginx_error) document.getElementById("e-err").textContent = "ذخیره شد؛ Nginx: " + res.nginx_error;
+      if (res.nginx_error) document.getElementById("e-err").textContent = "ذخیره شد (پورت " + (res.listen_port || "?") + ")؛ Nginx: " + res.nginx_error;
       else { hideDrawer(); await renderCanvas(); }
     } catch (e) { document.getElementById("e-err").textContent = e.message; }
   };
@@ -497,10 +500,12 @@ async function openNginx() {
     <label>مسیر فایل conf</label><input id="n-path" value="${esc(ns.conf_path || "")}" />
     <label>دستور تست (none = رد شدن)</label><input id="n-test" value="${esc(ns.test_cmd || "")}" />
     <label>دستور reload</label><input id="n-rel" value="${esc(ns.reload_cmd || "")}" />
+    <p class="muted">هر دامنه از پورت شروع (پیش‌فرض ۸۰۰۰) به بالا یک پورت آزاد می‌گیرد. پورت‌های اشغال‌شده و رزرو (۸۰، ۴۴۳، ۸۰۰۲، پنل ادمین) رد می‌شوند.</p>
     <div class="row">
-      <label style="flex:1">پورت HTTP<input id="n-http" type="number" value="${ns.listen_http || 80}" /></label>
-      <label style="flex:1">پورت HTTPS گیت‌وی‌ها<input id="n-https" type="number" value="${ns.listen_https || 443}" /></label>
-      <label style="flex:1">پورت HTTPS پنل ادمین<input id="n-admin" type="number" value="${ns.listen_admin_https || 8003}" /></label>
+      <label style="flex:1">پورت HTTP (ریدایرکت)<input id="n-http" type="number" value="${ns.listen_http || 80}" /></label>
+      <label style="flex:1">شروع پورت دامنه‌ها<input id="n-dstart" type="number" value="${ns.domain_port_start || 8000}" /></label>
+      <label style="flex:1">پایان محدوده<input id="n-dmax" type="number" value="${ns.domain_port_max || 8999}" /></label>
+      <label style="flex:1">پورت پنل ادمین<input id="n-admin" type="number" value="${ns.listen_admin_https || 8003}" /></label>
     </div>
     <label>آدرس Go برای Nginx</label><input id="n-up" value="${esc(ns.gateway_upstream || "127.0.0.1:8002")}" />
     <label>گواهی</label><input id="n-cert" value="${esc(ns.ssl_cert || "")}" />
@@ -529,8 +534,10 @@ async function openNginx() {
     test_cmd: document.getElementById("n-test").value,
     reload_cmd: document.getElementById("n-rel").value,
     listen_http: num("n-http"),
-    listen_https: num("n-https"),
+    listen_https: ns.listen_https || 443,
     listen_admin_https: num("n-admin"),
+    domain_port_start: num("n-dstart"),
+    domain_port_max: num("n-dmax"),
     gateway_upstream: document.getElementById("n-up").value,
     ssl_cert: document.getElementById("n-cert").value,
     ssl_key: document.getElementById("n-key").value,
@@ -567,7 +574,7 @@ async function loadList() {
   (health || []).forEach((h) => { byGw[h.gateway_id] = byGw[h.gateway_id] || []; byGw[h.gateway_id].push(h); });
   document.getElementById("cards").innerHTML = (list || []).map((g) => {
     const hs = (byGw[g.id] || []).map((h) => `<div class="muted">${esc(h.target)} — <span class="badge ${h.status}">${statusFa[h.status] || h.status}</span></div>`).join("");
-    return `<div class="card"><div class="muted">${esc(g.host)}</div><h3>${esc(g.name)}</h3>${hs || ""}<div class="row"><button class="secondary" data-id="${g.id}">ویرایش</button></div></div>`;
+    return `<div class="card"><div class="muted">${esc(g.host)}${g.listen_port ? ":" + g.listen_port : ""}</div><h3>${esc(g.name)}</h3>${hs || ""}<div class="row"><button class="secondary" data-id="${g.id}">ویرایش</button></div></div>`;
   }).join("");
   document.querySelectorAll("#cards [data-id]").forEach((b) => { b.onclick = () => openGateway(b.dataset.id); });
 }

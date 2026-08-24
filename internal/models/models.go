@@ -9,23 +9,24 @@ import (
 )
 
 type Gateway struct {
-	ID               string     `json:"id"`
-	Name             string     `json:"name"`
-	Host             string     `json:"host"`
-	Enabled          bool       `json:"enabled"`
-	LBStrategy       string     `json:"lb_strategy"`
-	MaxConcurrency   int        `json:"max_concurrency"`
-	QueueSize        int        `json:"queue_size"`
-	QueueTimeoutMS   int        `json:"queue_timeout_ms"`
-	RPS              int        `json:"rps"`
-	Sensitive        bool       `json:"sensitive"`
-	CORSAllowOrigin  string     `json:"cors_allow_origin"`
-	Websocket        bool       `json:"websocket"`
-	ClientMaxBody    string     `json:"client_max_body"`
-	ProxyReadTimeout int        `json:"proxy_read_timeout"`
-	ProxySendTimeout int        `json:"proxy_send_timeout"`
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	Host             string        `json:"host"`
+	Enabled          bool          `json:"enabled"`
+	LBStrategy       string        `json:"lb_strategy"`
+	MaxConcurrency   int           `json:"max_concurrency"`
+	QueueSize        int           `json:"queue_size"`
+	QueueTimeoutMS   int           `json:"queue_timeout_ms"`
+	RPS              int           `json:"rps"`
+	Sensitive        bool          `json:"sensitive"`
+	CORSAllowOrigin  string        `json:"cors_allow_origin"`
+	Websocket        bool          `json:"websocket"`
+	ClientMaxBody    string        `json:"client_max_body"`
+	ProxyReadTimeout int           `json:"proxy_read_timeout"`
+	ProxySendTimeout int           `json:"proxy_send_timeout"`
 	NginxExtra       string        `json:"nginx_extra"`
 	HealthPath       string        `json:"health_path"`
+	ListenPort       int           `json:"listen_port"`
 	AllowedOrigins   []string      `json:"allowed_origins"`
 	AccessTokens     []AccessToken `json:"access_tokens,omitempty"`
 	CreatedAt        time.Time     `json:"created_at"`
@@ -155,6 +156,8 @@ type NginxSettings struct {
 	ListenHTTP       int    `json:"listen_http"`
 	ListenHTTPS      int    `json:"listen_https"`
 	ListenAdminHTTPS int    `json:"listen_admin_https"`
+	DomainPortStart  int    `json:"domain_port_start"`
+	DomainPortMax    int    `json:"domain_port_max"`
 	SSLCert          string `json:"ssl_cert"`
 	SSLKey           string `json:"ssl_key"`
 	RedirectHTTP     bool   `json:"redirect_http"`
