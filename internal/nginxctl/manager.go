@@ -36,7 +36,7 @@ func Defaults(cfg config.Config) models.NginxSettings {
 		ReloadCmd:        cfg.NginxReloadCmd,
 		ListenHTTP:       80,
 		ListenHTTPS:      443,
-		ListenAdminHTTPS: 443,
+		ListenAdminHTTPS: 8003,
 		SSLCert:          "/etc/pki/nginx/fullchain.pem",
 		SSLKey:           "/etc/pki/nginx/privkey.pem",
 		RedirectHTTP:     true,
@@ -56,7 +56,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		settings.ListenHTTPS = 443
 	}
 	if settings.ListenAdminHTTPS <= 0 {
-		settings.ListenAdminHTTPS = settings.ListenHTTPS
+		settings.ListenAdminHTTPS = 8003
 	}
 	if settings.GatewayUpstream == "" {
 		settings.GatewayUpstream = "127.0.0.1:8002"

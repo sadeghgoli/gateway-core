@@ -6,19 +6,13 @@
 sudo bash deploy/install-almalinux.sh
 ```
 
-اگر پنل ادمین باید روی دامنه بدون پورت باشد (`https://gateway-admin.sabzevar.ir/`):
+پنل ادمین روی HTTPS پورت ۸۰۰۳:
 
 ```bash
-sudo bash deploy/apply-admin-on-domain.sh
+sudo bash deploy/apply-admin-8003.sh
 ```
 
-برای نصب گواهی `ssl/certificate.pfx` روی همه دامنه‌ها و پنل روی ۴۴۳:
-
-```bash
-sudo bash deploy/apply-ssl.sh
-```
-
-سپس پنل: `https://gateway-admin.sabzevar.ir/`
+آدرس: `https://gateway-admin.sabzevar.ir:8003/`
 
 اسکریپت بسته‌ها، کاربر `gateway`، بیلد باینری، systemd، Nginx، گواهی (اگر نبود خودامضا)، فایروال، SELinux و sudoers ریلود Nginx را یکجا انجام می‌دهد.
 

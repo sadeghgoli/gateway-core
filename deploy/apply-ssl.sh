@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# استخراج certificate.pfx و اعمال روی همه دامنه‌های Nginx + پنل ادمین روی دامنه (443)
+# استخراج certificate.pfx و اعمال روی همه دامنه‌های Nginx + پنل ادمین HTTPS :8003
 #   sudo bash deploy/apply-ssl.sh
 #
 #   PFX_PASSWORD   پیش‌فرض 12345
@@ -22,8 +22,7 @@ CERT_DIR="/etc/pki/nginx"
 CERT_FILE="${CERT_DIR}/fullchain.pem"
 KEY_FILE="${CERT_DIR}/privkey.pem"
 NGINX_MANAGED="/etc/nginx/conf.d/gateway-managed.conf"
-NGINX_ADMIN="/etc/nginx/conf.d/gateway-admin.conf"
-NGINX_ADMIN_OLD="/etc/nginx/conf.d/gateway-admin-8003.conf"
+NGINX_ADMIN="/etc/nginx/conf.d/gateway-admin-8003.conf"
 BIN_PATH="/usr/local/bin/gateway-core"
 
 if [[ -z "${ADMIN_HOST:-}" && -f "${ENV_FILE}" ]]; then
@@ -131,27 +130,26 @@ systemctl enable gateway-core >/dev/null 2>&1 || true
 systemctl restart gateway-core || true
 sleep 1
 
-echo "==> Nginx: همه دامنه‌ها + ادمین روی 443 با همین گواهی"
+echo "==> Nginx: همه دامنه‌ها + ادمین :8003 با همین گواهی"
 strip_listen_8003 "${NGINX_MANAGED}"
-rm -f "${NGINX_ADMIN_OLD}"
+rm -f /etc/nginx/conf.d/gateway-admin.conf
 if [[ -f "${NGINX_MANAGED}" ]]; then
   sed -i "s#ssl_certificate     .*#ssl_certificate     ${CERT_FILE};#g" "${NGINX_MANAGED}" || true
   sed -i "s#ssl_certificate_key .*#ssl_certificate_key ${KEY_FILE};#g" "${NGINX_MANAGED}" || true
   sed -i 's/127\.0\.0\.1:8080/127.0.0.1:8002/g' "${NGINX_MANAGED}" || true
-  sed -i 's#https://\$host:8003#https://\$host#g' "${NGINX_MANAGED}" || true
 fi
 
 cat > "${NGINX_ADMIN}" <<EOF
-# پنل ادمین روی دامنه HTTPS — گواهی مشترک PFX
+# پنل ادمین HTTPS روی 8003 — گواهی مشترک PFX
 server {
     listen 80;
     listen [::]:80;
     server_name ${ADMIN_HOST};
-    return 301 https://\$host\$request_uri;
+    return 301 https://\$host:8003\$request_uri;
 }
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 8003 ssl;
+    listen [::]:8003 ssl;
     http2 on;
     server_name ${ADMIN_HOST};
     ssl_certificate     ${CERT_FILE};
@@ -177,9 +175,10 @@ echo "==> فایروال / SELinux"
 firewall-cmd --permanent --add-port=8002/tcp >/dev/null 2>&1 || true
 firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
 firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || true
-firewall-cmd --permanent --remove-port=8003/tcp >/dev/null 2>&1 || true
+firewall-cmd --permanent --add-port=8003/tcp >/dev/null 2>&1 || true
 firewall-cmd --reload >/dev/null 2>&1 || true
 setsebool -P httpd_can_network_connect 1 >/dev/null 2>&1 || true
+semanage port -a -t http_port_t -p tcp 8003 2>/dev/null || semanage port -m -t http_port_t -p tcp 8003 2>/dev/null || true
 
 echo "==> nginx -t && reload"
 nginx -t
@@ -187,8 +186,8 @@ systemctl reload nginx
 
 echo
 echo "انجام شد. گواهی برای همه serverهای ssl در ${NGINX_MANAGED} و پنل ادمین اعمال شد."
-echo "  پنل: https://${ADMIN_HOST}/"
+echo "  پنل: https://${ADMIN_HOST}:8003/"
 echo "  گواهی: ${CERT_FILE}"
-ss -lntp | grep -E ':8002|:443' || true
+ss -lntp | grep -E ':8002|:8003|:443' || true
 echo
-curl -k -sS --noproxy '*' --max-time 8 -o /dev/null -w "admin 443: %{http_code}\n" -H "Host: ${ADMIN_HOST}" "https://127.0.0.1/" || true
+curl -k -sS --noproxy '*' --max-time 8 -o /dev/null -w "admin 8003: %{http_code}\n" -H "Host: ${ADMIN_HOST}" "https://127.0.0.1:8003/" || true
