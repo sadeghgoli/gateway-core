@@ -11,6 +11,15 @@ if [[ ${EUID:-0} -ne 0 ]]; then
 fi
 
 ENV_FILE="/etc/gateway-core.env"
+if [[ -z "${CERT_FILE:-}" ]]; then
+  for d in /etc/pki/nginx /etc/pki/nginx /etc/nginx/ssl; do
+    if [[ -f "$d/fullchain.pem" && -f "$d/privkey.pem" ]]; then
+      CERT_FILE="$d/fullchain.pem"
+      KEY_FILE="$d/privkey.pem"
+      break
+    fi
+  done
+fi
 CERT_FILE="${CERT_FILE:-/etc/pki/nginx/fullchain.pem}"
 KEY_FILE="${KEY_FILE:-/etc/pki/nginx/privkey.pem}"
 BACKEND="${BACKEND:-127.0.0.1:8002}"
@@ -72,7 +81,39 @@ if new != orig:
 PY
 done
 
-echo "==> server ادمین روی 443"
+echo "==> برداشتن ${ADMIN_HOST} از server_name بقیه confها تا تداخل نماند"
+python3 - "${ADMIN_HOST}" <<'PY'
+import glob, re, sys
+host = sys.argv[1]
+pat = re.compile(r'(server_name\s+)([^;]+);')
+for path in glob.glob("/etc/nginx/conf.d/*.conf"):
+    if path.endswith("gateway-admin.conf"):
+        continue
+    text = open(path, encoding="utf-8", errors="replace").read()
+    def repl(m):
+        names = [n for n in m.group(2).split() if n != host]
+        if names == m.group(2).split():
+            return m.group(0)
+        if not names:
+            return "server_name _; # " + host + " moved;\n"
+        return m.group(1) + " ".join(names) + ";"
+    new = pat.sub(repl, text)
+    if new != text:
+        open(path, "w", encoding="utf-8").write(new)
+        print("    جدا شد از", path)
+PY
+
+echo "==> بالا آوردن gateway-core روی 8002"
+systemctl enable gateway-core >/dev/null 2>&1 || true
+systemctl restart gateway-core || true
+sleep 1
+if ! ss -lnt | grep -q ':8002'; then
+  echo "سرویس روی 8002 گوش نمی‌دهد. وضعیت:" >&2
+  systemctl --no-pager --full status gateway-core || true
+  journalctl -u gateway-core -n 40 --no-pager || true
+fi
+
+echo "==> server ادمین روی 443 → ${BACKEND}"
 cat > "${NGINX_ADMIN}" <<EOF
 # پنل ادمین روی دامنه — بدون پورت
 server {
@@ -96,6 +137,8 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 5s;
         proxy_read_timeout 120s;
         proxy_send_timeout 120s;
         proxy_buffering off;
@@ -116,14 +159,24 @@ firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || true
 firewall-cmd --permanent --remove-port=8003/tcp >/dev/null 2>&1 || true
 firewall-cmd --reload >/dev/null 2>&1 || true
 setsebool -P httpd_can_network_connect 1 >/dev/null 2>&1 || true
+semanage port -a -t http_port_t -p tcp 8002 2>/dev/null || semanage port -m -t http_port_t -p tcp 8002 2>/dev/null || true
 
 echo "==> nginx -t && reload"
 nginx -t
 systemctl reload nginx
 
 echo
-echo "انجام شد. پنل روی دامنه است (بدون پورت):"
-echo "  https://${ADMIN_HOST}/"
-ss -lntp | grep -E ':443|:8002|:8003' || true
+echo "تست لوکال:"
+curl -sS --noproxy '*' --max-time 5 -o /dev/null -w "  Go 8002: %{http_code}\n" -H "Host: ${ADMIN_HOST}" "http://${BACKEND}/" || echo "  Go 8002: FAIL"
+code="$(curl -k -sS --noproxy '*' --max-time 8 -o /dev/null -w "%{http_code}" -H "Host: ${ADMIN_HOST}" "https://127.0.0.1/" || true)"
+echo "  Nginx 443: ${code}"
+if [[ "${code}" == "502" || "${code}" == "000" ]]; then
+  echo
+  echo "هنوز 502 است. علت معمولاً قطع بودن Go یا SELinux است. لاگ:"
+  journalctl -u gateway-core -n 25 --no-pager || true
+  echo "--- nginx error ---"
+  tail -n 20 /var/log/nginx/error.log || true
+fi
 echo
-curl -k -sS --noproxy '*' --max-time 8 -o /dev/null -w "admin 443: %{http_code}\n" -H "Host: ${ADMIN_HOST}" "https://127.0.0.1/" || true
+echo "پنل: https://${ADMIN_HOST}/"
+ss -lntp | grep -E ':443|:8002' || true
