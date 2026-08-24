@@ -500,7 +500,7 @@ async function openNginx() {
     <div class="row">
       <label style="flex:1">پورت HTTP<input id="n-http" type="number" value="${ns.listen_http || 80}" /></label>
       <label style="flex:1">پورت HTTPS گیت‌وی‌ها<input id="n-https" type="number" value="${ns.listen_https || 443}" /></label>
-      <label style="flex:1">پورت HTTPS پنل ادمین<input id="n-admin" type="number" value="${ns.listen_admin_https || 8003}" /></label>
+      <label style="flex:1">پورت HTTPS پنل ادمین (443 = روی دامنه بدون پورت)<input id="n-admin" type="number" value="${ns.listen_admin_https || 443}" /></label>
     </div>
     <label>آدرس Go برای Nginx</label><input id="n-up" value="${esc(ns.gateway_upstream || "127.0.0.1:8002")}" />
     <label>گواهی</label><input id="n-cert" value="${esc(ns.ssl_cert || "")}" />

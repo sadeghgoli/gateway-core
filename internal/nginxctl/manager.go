@@ -36,7 +36,7 @@ func Defaults(cfg config.Config) models.NginxSettings {
 		ReloadCmd:        cfg.NginxReloadCmd,
 		ListenHTTP:       80,
 		ListenHTTPS:      443,
-		ListenAdminHTTPS: 8003,
+		ListenAdminHTTPS: 443,
 		SSLCert:          "/etc/pki/nginx/fullchain.pem",
 		SSLKey:           "/etc/pki/nginx/privkey.pem",
 		RedirectHTTP:     true,
@@ -56,7 +56,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		settings.ListenHTTPS = 443
 	}
 	if settings.ListenAdminHTTPS <= 0 {
-		settings.ListenAdminHTTPS = 8003
+		settings.ListenAdminHTTPS = settings.ListenHTTPS
 	}
 	if settings.GatewayUpstream == "" {
 		settings.GatewayUpstream = "127.0.0.1:8002"
@@ -127,7 +127,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		b.WriteString("server {\n")
 		b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", settings.ListenHTTP, settings.ListenHTTP))
 		b.WriteString("    server_name " + adminHost + ";\n")
-		b.WriteString(fmt.Sprintf("    return 301 https://$host:%d$request_uri;\n}\n\n", settings.ListenAdminHTTPS))
+		b.WriteString("    return 301 " + httpsRedirect(settings.ListenAdminHTTPS) + ";\n}\n\n")
 	}
 
 	for _, g := range gateways {
@@ -232,6 +232,13 @@ func (m *Manager) Apply(settings models.NginxSettings, content string) error {
 		}
 	}
 	return nil
+}
+
+func httpsRedirect(port int) string {
+	if port <= 0 || port == 443 {
+		return "https://$host$request_uri"
+	}
+	return fmt.Sprintf("https://$host:%d$request_uri", port)
 }
 
 func skipCmd(s string) bool {
