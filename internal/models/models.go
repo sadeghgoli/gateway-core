@@ -153,6 +153,9 @@ type NginxSettings struct {
 	ConfPath         string `json:"conf_path"`
 	TestCmd          string `json:"test_cmd"`
 	ReloadCmd        string `json:"reload_cmd"`
+	// Shared443: همه دامنه‌ها روی یک listen 443 (مدل کارفرما / میکروسرویس‌ها).
+	// false = هر دامنه پورت عمومی جدا در محدوده DomainPortStart..Max.
+	Shared443        bool   `json:"shared_443"`
 	ListenHTTP       int    `json:"listen_http"`
 	ListenHTTPS      int    `json:"listen_https"`
 	ListenAdminHTTPS int    `json:"listen_admin_https"`

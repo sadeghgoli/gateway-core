@@ -334,14 +334,13 @@ EOF
 fi
 
 if [[ "${SKIP_FIREWALL:-0}" != "1" ]]; then
-  echo "==> فایروال و SELinux"
+  echo "==> فایروال و SELinux (http/https برای مدل 443 مشترک)"
   firewall-cmd --permanent --add-service=http >/dev/null
   firewall-cmd --permanent --add-service=https >/dev/null
+  # 8002 فقط لوکال/مدیریت؛ از بیرون لازم نیست ولی برای سازگاری باز می‌ماند
   firewall-cmd --permanent --add-port=8002/tcp >/dev/null
-  firewall-cmd --permanent --add-port=8003/tcp >/dev/null
   firewall-cmd --reload >/dev/null
   setsebool -P httpd_can_network_connect 1 || true
-  semanage port -a -t http_port_t -p tcp 8003 2>/dev/null || semanage port -m -t http_port_t -p tcp 8003 2>/dev/null || true
 fi
 
 echo "==> سرویس gateway-core"
@@ -352,9 +351,10 @@ systemctl --no-pager --full status gateway-core || true
 
 echo
 echo "نصب تمام شد."
-echo "  پنل:  https://${ADMIN_HOST}:8003/   یا   http://<IP-سرور>:8002/"
+echo "  مدل پیشنهادی (۴۴۳ مشترک): sudo bash deploy/apply-shared-443.sh"
+echo "  پنل:  https://${ADMIN_HOST}/   یا   http://<IP-سرور>:8002/_admin/"
 echo "  کاربر: admin"
 echo "  رمز:   داخل ${ENV_FILE}  (GATEWAY_ADMIN_PASSWORD)"
-echo "  Nginx managed: ${NGINX_MANAGED}"
+echo "  تأیید: bash deploy/verify-shared-443.sh"
 echo
 echo "اگر گواهی خودامضا است، مرورگر هشدار می‌دهد؛ با certbot عوض کنید."

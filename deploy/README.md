@@ -6,6 +6,28 @@
 sudo bash deploy/install-almalinux.sh
 ```
 
+## مدل پیشنهادی: ۴۴۳ مشترک (درخواست کارفرما)
+
+همه دامنه‌ها روی یک `listen 443`؛ فایروال فقط `http`/`https`؛ روتینگ Host در Go:
+
+```bash
+sudo bash deploy/apply-shared-443.sh
+bash deploy/verify-shared-443.sh
+```
+
+آدرس‌ها (بدون پورت اضافه):
+
+- `https://map-gateway.sabzevar.ir/`
+- `https://apisrv-gatewaylogin.sabzevar.ir/`
+- `https://apisrv-gateway137.sabzevar.ir/`
+- `https://gateway-admin.sabzevar.ir/`
+
+DNS هر دامنه → IP همین سرور. فهرست Upstreamها: [docs/domains-inventory.md](../docs/domains-inventory.md).
+
+---
+
+### حالت قدیمی: پورت جدا (اختیاری)
+
 پنل ادمین روی HTTPS پورت ۸۰۰۳:
 
 ```bash
@@ -69,7 +91,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now gateway-core
 ```
 
-4. Nginx:
+4. Nginx (۴۴۳ مشترک):
 
 ```bash
 sudo cp deploy/nginx/gateway.conf /etc/nginx/conf.d/gateway.conf
@@ -91,7 +113,7 @@ sudo setsebool -P httpd_can_network_connect 1
 از پنل می‌توانید:
 
 - دامنه عمومی را به **پورت محلی** (`127.0.0.1:PORT`) یا دامنه/URL دیگر وصل کنید
-- پورت listen، گواهی، timeout و WebSocket را برای Nginx تنظیم و با «اعمال روی سرور» reload کنید
+- حالت **۴۴۳ مشترک** (پیش‌فرض) یا پورت جدا را برای Nginx تنظیم و با «اعمال روی سرور» reload کنید
 - روی بوم (شبیه n8n) ببینید کدام دامنه به کدام سرویس وصل است؛ گره قرمز یعنی سرویس قطع است
 
 برای مدیریت Nginx توسط کاربر `gateway`:
@@ -101,4 +123,3 @@ gateway ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /usr/sbin/nginx -s reload
 ```
 
 و در پنل دستور reload را `sudo nginx -s reload` بگذارید. اگر هنوز conf دستی می‌خواهید، دستور تست/reload را `none` بگذارید؛ فقط فایل نوشته می‌شود.
-

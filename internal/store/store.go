@@ -159,58 +159,65 @@ ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash
 	if err != nil {
 		return err
 	}
+	return s.ensureCatalogGateways()
+}
 
-	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM gateways`).Scan(&n); err != nil {
-		return err
-	}
-	if n > 0 {
-		return nil
-	}
-
+// ensureCatalogGateways inserts phase-1 domains if missing (safe for existing DBs).
+func (s *Store) ensureCatalogGateways() error {
 	now := time.Now().UTC()
-	mapID := uuid.NewString()
-	loginID := uuid.NewString()
 
-	if err := s.insertGateway(models.Gateway{
-		ID: mapID, Name: "نقشه", Host: "map-gateway.sabzevar.ir", Enabled: true,
+	if err := s.ensureGatewayBundle(models.Gateway{
+		ID: uuid.NewString(), Name: "نقشه", Host: "map-gateway.sabzevar.ir", Enabled: true,
 		LBStrategy: "single", MaxConcurrency: 200, QueueSize: 400, QueueTimeoutMS: 3000, RPS: 0,
 		Sensitive: false, CORSAllowOrigin: "*", Websocket: true, HealthPath: "/api/v1/health", CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
-		return err
-	}
-	if err := s.insertUpstream(models.Upstream{
-		ID: uuid.NewString(), GatewayID: mapID, Kind: "remote",
-		URL: "http://192.168.1.19:7003", Weight: 1, Enabled: true, HealthPath: "/api/v1/health",
-	}); err != nil {
-		return err
-	}
-	if err := s.insertRoute(models.Route{
-		ID: uuid.NewString(), GatewayID: mapID, PathPrefix: "/", Priority: 0,
-		SetQuery: map[string]string{}, RemoveQuery: []string{},
-		SetHeaders: map[string]string{"X-Forwarded-Gateway": "map"},
-	}); err != nil {
+	}, models.Upstream{
+		Kind: "remote", URL: "http://192.168.1.19:7003", Weight: 1, Enabled: true, HealthPath: "/api/v1/health",
+	}, map[string]string{"X-Forwarded-Gateway": "map"}); err != nil {
 		return err
 	}
 
-	if err := s.insertGateway(models.Gateway{
-		ID: loginID, Name: "لاگین", Host: "apisrv-gatewaylogin.sabzevar.ir", Enabled: true,
+	if err := s.ensureGatewayBundle(models.Gateway{
+		ID: uuid.NewString(), Name: "لاگین", Host: "apisrv-gatewaylogin.sabzevar.ir", Enabled: true,
 		LBStrategy: "single", MaxConcurrency: 80, QueueSize: 160, QueueTimeoutMS: 5000, RPS: 20,
 		Sensitive: true, CORSAllowOrigin: "", Websocket: false, HealthPath: "/", CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
+	}, models.Upstream{
+		Kind: "remote", URL: "https://apisrv.sabzevar.ir", Weight: 1, Enabled: true,
+	}, map[string]string{"X-Forwarded-Gateway": "login"}); err != nil {
 		return err
 	}
-	if err := s.insertUpstream(models.Upstream{ID: uuid.NewString(), GatewayID: loginID, URL: "https://apisrv.sabzevar.ir", Weight: 1, Enabled: true}); err != nil {
+
+	return s.ensureGatewayBundle(models.Gateway{
+		ID: uuid.NewString(), Name: "سرویس ۱۳۷", Host: "apisrv-gateway137.sabzevar.ir", Enabled: true,
+		LBStrategy: "single", MaxConcurrency: 100, QueueSize: 200, QueueTimeoutMS: 5000, RPS: 0,
+		Sensitive: false, CORSAllowOrigin: "", Websocket: false, HealthPath: "/", CreatedAt: now, UpdatedAt: now,
+	}, models.Upstream{
+		Kind: "local", TargetHost: "127.0.0.1", TargetPort: 13700, Scheme: "http",
+		URL: "http://127.0.0.1:13700", Weight: 1, Enabled: true,
+	}, map[string]string{"X-Forwarded-Gateway": "137"})
+}
+
+func (s *Store) ensureGatewayBundle(g models.Gateway, u models.Upstream, headers map[string]string) error {
+	var existing string
+	err := s.db.QueryRow(`SELECT id FROM gateways WHERE host = ?`, g.Host).Scan(&existing)
+	if err == nil {
+		return nil
+	}
+	if err != sql.ErrNoRows {
 		return err
 	}
-	if err := s.insertRoute(models.Route{
-		ID: uuid.NewString(), GatewayID: loginID, PathPrefix: "/", Priority: 0,
+	if err := s.insertGateway(g); err != nil {
+		return err
+	}
+	u.ID = uuid.NewString()
+	u.GatewayID = g.ID
+	if err := s.insertUpstream(u); err != nil {
+		return err
+	}
+	return s.insertRoute(models.Route{
+		ID: uuid.NewString(), GatewayID: g.ID, PathPrefix: "/", Priority: 0,
 		SetQuery: map[string]string{}, RemoveQuery: []string{},
-		SetHeaders: map[string]string{"X-Forwarded-Gateway": "login"},
-	}); err != nil {
-		return err
-	}
-	return nil
+		SetHeaders: headers,
+	})
 }
 
 func (s *Store) CheckAdmin(username, password string) bool {

@@ -31,12 +31,13 @@ func Defaults(cfg config.Config) models.NginxSettings {
 	return models.NginxSettings{
 		Managed:          true,
 		AutoReload:       false,
+		Shared443:        true,
 		ConfPath:         cfg.NginxConfPath,
 		TestCmd:          cfg.NginxTestCmd,
 		ReloadCmd:        cfg.NginxReloadCmd,
 		ListenHTTP:       80,
 		ListenHTTPS:      443,
-		ListenAdminHTTPS: 8003,
+		ListenAdminHTTPS: 443,
 		DomainPortStart:  8000,
 		DomainPortMax:    8999,
 		SSLCert:          "/etc/pki/nginx/fullchain.pem",
@@ -58,7 +59,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		settings.ListenHTTPS = 443
 	}
 	if settings.ListenAdminHTTPS <= 0 {
-		settings.ListenAdminHTTPS = 8003
+		settings.ListenAdminHTTPS = settings.ListenHTTPS
 	}
 	if settings.DomainPortStart <= 0 {
 		settings.DomainPortStart = DefaultDomainPortStart
@@ -82,8 +83,121 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		return "", fmt.Errorf("مسیر کلید نامعتبر است")
 	}
 
+	if settings.Shared443 {
+		return renderShared443(settings, gateways, adminHost)
+	}
+	return renderPerDomainPorts(settings, gateways, adminHost)
+}
+
+func renderShared443(settings models.NginxSettings, gateways []models.Gateway, adminHost string) (string, error) {
+	hosts := collectHosts(gateways, adminHost)
+	if len(hosts) == 0 {
+		return "", fmt.Errorf("هیچ دامنه‌ای برای Nginx تعریف نشده")
+	}
+	names := strings.Join(hosts, "\n                ")
+
+	body := settings.ClientMaxBody
+	readTO := settings.ProxyReadTimeout
+	if readTO <= 0 {
+		readTO = 120
+	}
+	sendTO := settings.ProxySendTimeout
+	if sendTO <= 0 {
+		sendTO = 120
+	}
+	ws := settings.Websocket
+	for _, g := range gateways {
+		if !g.Enabled {
+			continue
+		}
+		if g.Websocket {
+			ws = true
+		}
+		if g.ProxyReadTimeout > readTO {
+			readTO = g.ProxyReadTimeout
+		}
+		if g.ProxySendTimeout > sendTO {
+			sendTO = g.ProxySendTimeout
+		}
+	}
+
 	var b strings.Builder
-	b.WriteString("# managed by gateway-core — do not edit by hand\n")
+	b.WriteString("# managed by gateway-core — shared 443 (do not edit by hand)\n")
+	b.WriteString("map $http_upgrade $connection_upgrade {\n    default upgrade;\n    ''      close;\n}\n\n")
+	b.WriteString("upstream gateway_core {\n    server " + settings.GatewayUpstream + ";\n    keepalive 32;\n}\n\n")
+
+	if settings.RedirectHTTP {
+		b.WriteString(fmt.Sprintf(`server {
+    listen %d;
+    listen [::]:%d;
+    server_name %s;
+    return 301 https://$host$request_uri;
+}
+
+`, settings.ListenHTTP, settings.ListenHTTP, names))
+	} else {
+		b.WriteString(fmt.Sprintf(`server {
+    listen %d default_server;
+    listen [::]:%d default_server;
+    server_name _;
+    client_max_body_size 2m;
+    location / {
+        proxy_pass http://gateway_core;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+`, settings.ListenHTTP, settings.ListenHTTP))
+	}
+
+	httpsPort := settings.ListenHTTPS
+	b.WriteString("# همه دامنه‌ها → Go (Host-based routing)\nserver {\n")
+	if hasSSL(settings) {
+		b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", httpsPort, httpsPort))
+	} else {
+		b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", httpsPort, httpsPort))
+	}
+	b.WriteString("    server_name " + names + ";\n")
+	if settings.SSLCert != "" {
+		b.WriteString("    ssl_certificate     " + settings.SSLCert + ";\n")
+		b.WriteString("    ssl_certificate_key " + settings.SSLKey + ";\n")
+	}
+	b.WriteString("    client_max_body_size " + body + ";\n")
+	b.WriteString("    location / {\n")
+	b.WriteString("        proxy_pass http://gateway_core;\n")
+	b.WriteString("        proxy_http_version 1.1;\n")
+	b.WriteString("        proxy_set_header Host $host;\n")
+	b.WriteString("        proxy_set_header X-Real-IP $remote_addr;\n")
+	b.WriteString("        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n")
+	b.WriteString("        proxy_set_header X-Forwarded-Proto $scheme;\n")
+	if ws {
+		b.WriteString("        proxy_set_header Upgrade $http_upgrade;\n")
+		b.WriteString("        proxy_set_header Connection $connection_upgrade;\n")
+	}
+	b.WriteString(fmt.Sprintf("        proxy_read_timeout %ds;\n        proxy_send_timeout %ds;\n", readTO, sendTO))
+	b.WriteString("        proxy_buffering off;\n")
+	b.WriteString("    }\n}\n")
+
+	for _, g := range gateways {
+		if !g.Enabled || !hostRe.MatchString(g.Host) {
+			continue
+		}
+		b.WriteString("# " + g.Name + " → ")
+		if len(g.Upstreams) > 0 {
+			b.WriteString(g.Upstreams[0].EffectiveURL())
+		}
+		b.WriteString(" (via Host)\n")
+	}
+	return b.String(), nil
+}
+
+func renderPerDomainPorts(settings models.NginxSettings, gateways []models.Gateway, adminHost string) (string, error) {
+	var b strings.Builder
+	b.WriteString("# managed by gateway-core — per-domain ports (do not edit by hand)\n")
 	b.WriteString("map $http_upgrade $connection_upgrade {\n    default upgrade;\n    ''      close;\n}\n\n")
 	b.WriteString("upstream gateway_core {\n    server " + settings.GatewayUpstream + ";\n    keepalive 32;\n}\n\n")
 	b.WriteString(fmt.Sprintf(`server {
@@ -103,24 +217,7 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 
 `, settings.ListenHTTP, settings.ListenHTTP))
 
-	hosts := make([]string, 0, len(gateways)+1)
-	seen := map[string]bool{}
-	addHost := func(h string) {
-		h = strings.ToLower(strings.TrimSpace(h))
-		if h == "" || seen[h] {
-			return
-		}
-		if !hostRe.MatchString(h) {
-			return
-		}
-		seen[h] = true
-		hosts = append(hosts, h)
-	}
-	for _, g := range gateways {
-		if g.Enabled {
-			addHost(g.Host)
-		}
-	}
+	hosts := collectHosts(gateways, "")
 	if len(hosts) == 0 && (adminHost == "" || !hostRe.MatchString(adminHost)) {
 		return "", fmt.Errorf("هیچ دامنه‌ای برای Nginx تعریف نشده")
 	}
@@ -219,6 +316,29 @@ func (m *Manager) Render(settings models.NginxSettings, gateways []models.Gatewa
 		b.WriteString("    }\n}\n")
 	}
 	return b.String(), nil
+}
+
+func collectHosts(gateways []models.Gateway, adminHost string) []string {
+	hosts := make([]string, 0, len(gateways)+1)
+	seen := map[string]bool{}
+	addHost := func(h string) {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" || seen[h] {
+			return
+		}
+		if !hostRe.MatchString(h) {
+			return
+		}
+		seen[h] = true
+		hosts = append(hosts, h)
+	}
+	for _, g := range gateways {
+		if g.Enabled {
+			addHost(g.Host)
+		}
+	}
+	addHost(adminHost)
+	return hosts
 }
 
 func (m *Manager) Apply(settings models.NginxSettings, content string) error {

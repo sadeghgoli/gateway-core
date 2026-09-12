@@ -348,9 +348,11 @@ func (s *Server) handleNginxPreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if _, err := nginxctl.AssignGatewayPorts(ns, list, nginxctl.TCPPortFree); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
+	if !ns.Shared443 {
+		if _, err := nginxctl.AssignGatewayPorts(ns, list, nginxctl.TCPPortFree); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	cfg, err := s.ngx.Render(ns, list, s.cfg.AdminHost)
 	if err != nil {
@@ -424,13 +426,31 @@ func (s *Server) applyNginx(ns models.NginxSettings) error {
 	if err != nil {
 		return err
 	}
-	changed, err := nginxctl.AssignGatewayPorts(ns, list, nginxctl.TCPPortFree)
-	if err != nil {
-		return err
-	}
-	for id, port := range changed {
-		if err := s.store.SetListenPort(id, port); err != nil {
+	if !ns.Shared443 {
+		changed, err := nginxctl.AssignGatewayPorts(ns, list, nginxctl.TCPPortFree)
+		if err != nil {
 			return err
+		}
+		for id, port := range changed {
+			if err := s.store.SetListenPort(id, port); err != nil {
+				return err
+			}
+		}
+	} else {
+		httpsPort := ns.ListenHTTPS
+		if httpsPort <= 0 {
+			httpsPort = 443
+		}
+		for i := range list {
+			if !list[i].Enabled {
+				continue
+			}
+			if list[i].ListenPort != httpsPort {
+				if err := s.store.SetListenPort(list[i].ID, httpsPort); err != nil {
+					return err
+				}
+				list[i].ListenPort = httpsPort
+			}
 		}
 	}
 	cfg, err := s.ngx.Render(ns, list, s.cfg.AdminHost)
@@ -440,12 +460,20 @@ func (s *Server) applyNginx(ns models.NginxSettings) error {
 	if err := s.ngx.Apply(ns, cfg); err != nil {
 		return err
 	}
-	s.openFirewallPorts(list)
+	s.openFirewallPorts(ns, list)
 	return nil
 }
 
 func (s *Server) assignListenPort(g *models.Gateway) error {
 	ns := s.loadNginx()
+	if ns.Shared443 {
+		httpsPort := ns.ListenHTTPS
+		if httpsPort <= 0 {
+			httpsPort = 443
+		}
+		g.ListenPort = httpsPort
+		return nil
+	}
 	start, max := nginxctl.DomainPortRange(ns)
 	keep := 0
 	if g.ID != "" {
@@ -464,7 +492,11 @@ func (s *Server) assignListenPort(g *models.Gateway) error {
 	return nil
 }
 
-func (s *Server) openFirewallPorts(list []models.Gateway) {
+func (s *Server) openFirewallPorts(ns models.NginxSettings, list []models.Gateway) {
+	if ns.Shared443 {
+		nginxctl.TryOpenHTTPServices()
+		return
+	}
 	seen := map[int]struct{}{}
 	for _, g := range list {
 		if !g.Enabled || g.ListenPort <= 0 {
@@ -489,13 +521,16 @@ func (s *Server) attachQueue(g *models.Gateway) {
 }
 
 func domainSubtitle(g models.Gateway) string {
-	if g.ListenPort > 0 {
+	if g.ListenPort > 0 && g.ListenPort != 443 {
 		if g.Name != "" {
 			return fmt.Sprintf("%s  :%d", g.Name, g.ListenPort)
 		}
 		return fmt.Sprintf(":%d", g.ListenPort)
 	}
-	return g.Name
+	if g.Name != "" {
+		return g.Name + "  :443"
+	}
+	return ":443"
 }
 
 func withLayout(n models.GraphNode, layout map[string]models.LayoutPoint) models.GraphNode {

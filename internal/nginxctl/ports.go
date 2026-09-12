@@ -117,6 +117,13 @@ func TryOpenHostPort(port int) {
 	_ = exec.Command("semanage", "port", "-m", "-t", "http_port_t", "-p", "tcp", p).Run()
 }
 
+// TryOpenHTTPServices opens only standard HTTP/HTTPS (shared-443 model).
+func TryOpenHTTPServices() {
+	_ = exec.Command("firewall-cmd", "--permanent", "--add-service=http").Run()
+	_ = exec.Command("firewall-cmd", "--permanent", "--add-service=https").Run()
+	_ = exec.Command("firewall-cmd", "--reload").Run()
+}
+
 func AssignGatewayPorts(settings models.NginxSettings, gateways []models.Gateway, free func(int) bool) (changed map[string]int, err error) {
 	start, max := DomainPortRange(settings)
 	reserved := ReservedPorts(settings)

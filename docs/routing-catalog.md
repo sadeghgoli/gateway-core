@@ -1,15 +1,18 @@
 # کاتالوگ مسیریابی Gateway Core
 
 الگوی دامنه/مسیر به سرویس مقصد. جزئیات عملیاتی در پنل مدیریت قابل تغییر است.
+فهرست عملیاتی: [domains-inventory.md](domains-inventory.md).
+
+**مدل عمومی:** همه دامنه‌ها روی `:443` سرور گیت‌وی (بدون پورت اضافه).
 
 ## جدول
 
 | دامنه گیت‌وی | الگوی path | سرویس مقصد | پارامتر / هدر | نمونه درخواست | پاسخ انتظاری |
 |---|---|---|---|---|---|
-| `map-gateway.sabzevar.ir` | `/*` | `http://<maps-host>:7003` (map-api nginx) — پورت عمومی `:8004` | `X-Forwarded-Gateway=map` — path و `?key=` بدون تغییر؛ توکن gateway-core نگذارید | پایین | پاسخ map-api / Nest |
+| `map-gateway.sabzevar.ir` | `/*` | `http://<maps-host>:7003` (map-api nginx) — عمومی `:443` | `X-Forwarded-Gateway=map` — path و `?key=` بدون تغییر؛ توکن gateway-core نگذارید | پایین | پاسخ map-api / Nest |
 | `apisrv-gatewaylogin.sabzevar.ir` | `/*` | `https://apisrv.sabzevar.ir` (پنل) | Cookie و Authorization فوروارد؛ Location به دامنه گیت‌وی | پایین | پاسخ لاگین بدون افشای URL داخلی |
 | `gateway-admin.sabzevar.ir` | `/` | خود gateway-core | نشست ادمین | مرورگر | پنل فارسی |
-| `apisrv-gateway137.sabzevar.ir` | `/*` (آینده) | از پنل | — | — | — |
+| `apisrv-gateway137.sabzevar.ir` | `/*` | `http://127.0.0.1:13700` | از پنل قابل تغییر | پایین | پاسخ سرویس ۱۳۷ |
 
 نسخه اکسل: [routing-catalog.xlsx](routing-catalog.xlsx)
 
@@ -17,12 +20,11 @@
 
 آپ‌ستریم: nginx استک **map-api** روی سرور نقشه (`NGINX_PORT=7003`). کلید را map-api صادر می‌کند (`?key=pk_...`)، نه access token گیت‌وی.
 
-پورت اختصاصی (بعد از `sudo bash deploy/apply-map-8004.sh`):
+روی ۴۴۳ مشترک (بعد از `sudo bash deploy/apply-shared-443.sh`):
 
 ```bash
-sudo MAP_UPSTREAM='http://192.168.1.19:7003' bash deploy/apply-map-8004.sh
-curl -skI "https://map-gateway.sabzevar.ir:8004/api/v1/health"
-curl -skI "https://map-gateway.sabzevar.ir:8004/styles/style.json?key=pk_..."
+curl -skI "https://map-gateway.sabzevar.ir/api/v1/health"
+curl -skI "https://map-gateway.sabzevar.ir/styles/style.json?key=pk_..."
 ```
 
 معادل منطقی:
@@ -38,7 +40,7 @@ Header: X-Forwarded-Gateway: map-gateway.sabzevar.ir
 
 ```bash
 curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8002/api/v1/health
-curl -sI -H "Host: map-gateway.sabzevar.ir" http://127.0.0.1:8004/api/v1/health
+bash deploy/verify-shared-443.sh
 ```
 
 ## نمونه لاگین
@@ -55,9 +57,9 @@ curl -si https://apisrv-gatewaylogin.sabzevar.ir/auth/login \
 
 ## پورت محلی
 
-در پنل، نوع مقصد را `پورت محلی` بگذارید؛ مثلاً دامنه `apisrv-gateway137.sabzevar.ir` به `http://127.0.0.1:13700`. Nginx از پنل پورت ۸۰/۴۴۳ و گواهی را کنترل می‌کند.
+در پنل، نوع مقصد را `پورت محلی` بگذارید؛ مثلاً دامنه `apisrv-gateway137.sabzevar.ir` به `http://127.0.0.1:13700`. Nginx در حالت ۴۴۳ مشترک همه دامنه‌ها را روی ۸۰/۴۴۳ نگه می‌دارد.
 
-
-1. DNS دامنه (مثلاً `apisrv-gateway137.sabzevar.ir`) روی سرور اصلی.
-2. اگر گواهی wildcard `*.sabzevar.ir` دارید، Nginx نیاز به تغییر ندارد.
+1. DNS دامنه (مثلاً `apisrv-gateway137.sabzevar.ir`) روی سرور گیت‌وی.
+2. اگر گواهی wildcard `*.sabzevar.ir` دارید، Nginx معمولاً نیاز به تغییر ندارد.
 3. در پنل: نام، Host، یک یا چند Upstream، مسیر `/` ، سقف همزمانی و صف.
+4. `sudo bash deploy/apply-shared-443.sh` (یا از پنل «اعمال Nginx» با گزینه ۴۴۳ مشترک).
