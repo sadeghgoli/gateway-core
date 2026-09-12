@@ -69,7 +69,26 @@ systemctl reload nginx
 echo "==> بالا آوردن gateway-core"
 systemctl enable --now gateway-core >/dev/null 2>&1 || true
 systemctl restart gateway-core >/dev/null 2>&1 || true
-sleep 1
+
+echo "==> انتظار برای listen روی ${BACKEND}"
+ready=0
+for i in $(seq 1 30); do
+  if curl -sS --noproxy '*' --max-time 1 -o /dev/null "http://${BACKEND}/" -H "Host: gateway-admin.sabzevar.ir" 2>/dev/null; then
+    ready=1
+    break
+  fi
+  # connect refused / هنوز بالا نیامده
+  if ss -lnt 2>/dev/null | grep -q ':8002'; then
+    # پورت باز است ولی هنوز پاسخ نمی‌دهد
+    :
+  fi
+  sleep 0.5
+done
+if [[ "$ready" -ne 1 ]]; then
+  echo "هشدار: gateway-core روی ${BACKEND} آماده نشد. وضعیت:" >&2
+  systemctl --no-pager --full status gateway-core || true
+  journalctl -u gateway-core -n 30 --no-pager || true
+fi
 
 echo "==> تست Host روی ${BACKEND}"
 for host in map-gateway.sabzevar.ir apisrv-gatewaylogin.sabzevar.ir apisrv-gateway137.sabzevar.ir gateway-admin.sabzevar.ir; do
