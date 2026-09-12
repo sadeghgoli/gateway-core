@@ -20,15 +20,13 @@ SSL_KEY="${SSL_KEY:-/etc/pki/nginx/privkey.pem}"
 echo "==> نصب conf مشترک 443"
 install -m 0644 "${ROOT}/deploy/nginx/gateway.conf" "${NGINX_SHARED}"
 
-# conf مدیریت‌شده پنل را اگر پورت‌جدا است، کنار بگذار تا با 443 تداخل نکند
+# هر conf دیگری که upstream gateway_core دارد با gateway.conf تداخل می‌کند
 if [[ -f "${NGINX_MANAGED}" ]]; then
-  if grep -qE 'listen\s+(800[0-9]|8[1-9][0-9]{2})\b' "${NGINX_MANAGED}" 2>/dev/null; then
-    echo "==> آرشیو conf پورت‌جدا: ${NGINX_MANAGED}.per-port.bak"
-    mv -f "${NGINX_MANAGED}" "${NGINX_MANAGED}.per-port.bak"
-  fi
+  echo "==> آرشیو conf مدیریت‌شده: ${NGINX_MANAGED}.shared443.bak"
+  mv -f "${NGINX_MANAGED}" "${NGINX_MANAGED}.shared443.bak"
 fi
 
-# confهای اختصاصی قدیمی
+# confهای اختصاصی قدیمی / تکراری
 for f in /etc/nginx/conf.d/map-gateway-8004.conf /etc/nginx/conf.d/gateway-admin-8003.conf; do
   if [[ -f "$f" ]]; then
     echo "==> آرشیو $f"
@@ -36,8 +34,21 @@ for f in /etc/nginx/conf.d/map-gateway-8004.conf /etc/nginx/conf.d/gateway-admin
   fi
 done
 
+# اگر فایل دیگری در conf.d هنوز upstream gateway_core دارد، هشدار بده
+dup=$(grep -l 'upstream gateway_core' /etc/nginx/conf.d/*.conf 2>/dev/null | grep -v "${NGINX_SHARED}" || true)
+if [[ -n "${dup}" ]]; then
+  echo "هشدار: upstream تکراری در:" >&2
+  echo "${dup}" >&2
+  echo "این فایل‌ها را دستی آرشیو کنید و دوباره اجرا کنید." >&2
+  exit 1
+fi
+
 if [[ -f "${SSL_CERT}" && -f "${SSL_KEY}" ]]; then
-  sed -i 's|# ssl_certificate|ssl_certificate|g' "${NGINX_SHARED}" 2>/dev/null || true
+  # اطمینان از فعال بودن خطوط گواهی در conf کپی‌شده
+  sed -i \
+    -e 's|^[[:space:]]*#[[:space:]]*ssl_certificate[[:space:]]\+/etc/pki/nginx/fullchain.pem|    ssl_certificate     /etc/pki/nginx/fullchain.pem|' \
+    -e 's|^[[:space:]]*#[[:space:]]*ssl_certificate_key[[:space:]]\+/etc/pki/nginx/privkey.pem|    ssl_certificate_key /etc/pki/nginx/privkey.pem|' \
+    "${NGINX_SHARED}" 2>/dev/null || true
 else
   echo "هشدار: گواهی در ${SSL_CERT} نیست؛ از ssl/README.md یا apply-ssl.sh استفاده کنید." >&2
 fi
