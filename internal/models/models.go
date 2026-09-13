@@ -27,6 +27,9 @@ type Gateway struct {
 	NginxExtra       string        `json:"nginx_extra"`
 	HealthPath       string        `json:"health_path"`
 	ListenPort       int           `json:"listen_port"`
+	// SSLCert/SSLKey اختیاری؛ خالی = گواهی پیش‌فرض Nginx (shared).
+	SSLCert          string        `json:"ssl_cert"`
+	SSLKey           string        `json:"ssl_key"`
 	AllowedOrigins   []string      `json:"allowed_origins"`
 	AccessTokens     []AccessToken `json:"access_tokens,omitempty"`
 	CreatedAt        time.Time     `json:"created_at"`

@@ -198,12 +198,22 @@ func (s *Server) handleGateways(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "نام و دامنه الزامی است"})
 			return
 		}
+		g.SSLCert = strings.TrimSpace(g.SSLCert)
+		g.SSLKey = strings.TrimSpace(g.SSLKey)
+		if (g.SSLCert == "") != (g.SSLKey == "") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "گواهی و کلید SSL باید هر دو پر یا هر دو خالی باشند"})
+			return
+		}
 		if err := s.assignListenPort(&g); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 		if err := s.store.SaveGateway(g); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			msg := err.Error()
+			if strings.Contains(msg, "UNIQUE") && strings.Contains(msg, "host") {
+				msg = "این دامنه از قبل ثبت شده؛ همان رکورد را ویرایش کنید یا دامنه دیگری بگذارید"
+			}
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
 			return
 		}
 		_ = s.reg.Reload()

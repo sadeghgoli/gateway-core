@@ -130,6 +130,8 @@ func (s *Store) migrateExtra() error {
 		"ALTER TABLE upstreams ADD COLUMN health_path TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE gateways ADD COLUMN allowed_origins TEXT NOT NULL DEFAULT '[]'",
 		"ALTER TABLE gateways ADD COLUMN listen_port INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE gateways ADD COLUMN ssl_cert TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE gateways ADD COLUMN ssl_key TEXT NOT NULL DEFAULT ''",
 	}
 	for _, q := range cols {
 		_, _ = s.db.Exec(q)
@@ -230,7 +232,7 @@ func (s *Store) CheckAdmin(username, password string) bool {
 }
 
 func (s *Store) ListGateways() ([]models.Gateway, error) {
-	rows, err := s.db.Query(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, created_at, updated_at FROM gateways ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, ssl_cert, ssl_key, created_at, updated_at FROM gateways ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +259,7 @@ func (s *Store) ListGateways() ([]models.Gateway, error) {
 }
 
 func (s *Store) GetGateway(id string) (*models.Gateway, error) {
-	row := s.db.QueryRow(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, created_at, updated_at FROM gateways WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, ssl_cert, ssl_key, created_at, updated_at FROM gateways WHERE id = ?`, id)
 	g, err := scanGateway(row)
 	if err != nil {
 		return nil, err
@@ -301,17 +303,20 @@ func (s *Store) SaveGateway(g models.Gateway) error {
 	defer func() { _ = tx.Rollback() }()
 
 	originsJSON, _ := json.Marshal(cleanOrigins(g.AllowedOrigins))
+	g.SSLCert = strings.TrimSpace(g.SSLCert)
+	g.SSLKey = strings.TrimSpace(g.SSLKey)
 	_, err = tx.Exec(`
-INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, created_at, updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, ssl_cert, ssl_key, created_at, updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET
   name=excluded.name, host=excluded.host, enabled=excluded.enabled, lb_strategy=excluded.lb_strategy,
   max_concurrency=excluded.max_concurrency, queue_size=excluded.queue_size, queue_timeout_ms=excluded.queue_timeout_ms,
   rps=excluded.rps, sensitive=excluded.sensitive, cors_allow_origin=excluded.cors_allow_origin,
   websocket=excluded.websocket, client_max_body=excluded.client_max_body, proxy_read_timeout=excluded.proxy_read_timeout,
   proxy_send_timeout=excluded.proxy_send_timeout, nginx_extra=excluded.nginx_extra, health_path=excluded.health_path,
-  allowed_origins=excluded.allowed_origins, listen_port=excluded.listen_port, updated_at=excluded.updated_at
-`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, string(originsJSON), g.ListenPort, rfc(g.CreatedAt), rfc(g.UpdatedAt))
+  allowed_origins=excluded.allowed_origins, listen_port=excluded.listen_port,
+  ssl_cert=excluded.ssl_cert, ssl_key=excluded.ssl_key, updated_at=excluded.updated_at
+`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, string(originsJSON), g.ListenPort, g.SSLCert, g.SSLKey, rfc(g.CreatedAt), rfc(g.UpdatedAt))
 	if err != nil {
 		return err
 	}
@@ -451,8 +456,8 @@ func (s *Store) GatewayStats(id string) (models.Stats, error) {
 
 func (s *Store) insertGateway(g models.Gateway) error {
 	originsJSON, _ := json.Marshal(cleanOrigins(g.AllowedOrigins))
-	_, err := s.db.Exec(`INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, created_at, updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, string(originsJSON), g.ListenPort, rfc(g.CreatedAt), rfc(g.UpdatedAt))
+	_, err := s.db.Exec(`INSERT INTO gateways(id, name, host, enabled, lb_strategy, max_concurrency, queue_size, queue_timeout_ms, rps, sensitive, cors_allow_origin, websocket, client_max_body, proxy_read_timeout, proxy_send_timeout, nginx_extra, health_path, allowed_origins, listen_port, ssl_cert, ssl_key, created_at, updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, g.ID, g.Name, g.Host, boolInt(g.Enabled), g.LBStrategy, g.MaxConcurrency, g.QueueSize, g.QueueTimeoutMS, g.RPS, boolInt(g.Sensitive), g.CORSAllowOrigin, boolInt(g.Websocket), g.ClientMaxBody, g.ProxyReadTimeout, g.ProxySendTimeout, g.NginxExtra, g.HealthPath, string(originsJSON), g.ListenPort, strings.TrimSpace(g.SSLCert), strings.TrimSpace(g.SSLKey), rfc(g.CreatedAt), rfc(g.UpdatedAt))
 	return err
 }
 
@@ -537,7 +542,7 @@ func scanGateway(sc scanner) (models.Gateway, error) {
 	var en, sens, ws int
 	var created, updated string
 	var originsJSON string
-	err := sc.Scan(&g.ID, &g.Name, &g.Host, &en, &g.LBStrategy, &g.MaxConcurrency, &g.QueueSize, &g.QueueTimeoutMS, &g.RPS, &sens, &g.CORSAllowOrigin, &ws, &g.ClientMaxBody, &g.ProxyReadTimeout, &g.ProxySendTimeout, &g.NginxExtra, &g.HealthPath, &originsJSON, &g.ListenPort, &created, &updated)
+	err := sc.Scan(&g.ID, &g.Name, &g.Host, &en, &g.LBStrategy, &g.MaxConcurrency, &g.QueueSize, &g.QueueTimeoutMS, &g.RPS, &sens, &g.CORSAllowOrigin, &ws, &g.ClientMaxBody, &g.ProxyReadTimeout, &g.ProxySendTimeout, &g.NginxExtra, &g.HealthPath, &originsJSON, &g.ListenPort, &g.SSLCert, &g.SSLKey, &created, &updated)
 	if err != nil {
 		return g, err
 	}

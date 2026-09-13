@@ -339,6 +339,10 @@ function editGateway(g) {
     <label>دامنه عمومی</label><input id="e-host" value="${esc(g.host || "")}" placeholder="map-gateway.sabzevar.ir" />
     <label>پورت عمومی Nginx<input id="e-lp" type="number" value="${g.listen_port || 443}" /></label>
     <p class="muted">در حالت ۴۴۳ مشترک همه دامنه‌ها روی ۴۴۳ هستند. فقط اگر «پورت جدا» در تنظیمات Nginx فعال باشد، از ۸۰۰۰ به بالا پورت آزاد گرفته می‌شود.</p>
+    <h3>گواهی SSL این دامنه</h3>
+    <p class="muted">خالی بگذارید تا از گواهی پیش‌فرض Nginx (wildcard / مشترک) استفاده شود. برای دامنه جدا مثل sbzl.ir مسیر فایل روی سرور گیت‌وی را بگذارید.</p>
+    <label>مسیر گواهی (fullchain)<input id="e-sslcert" value="${esc(g.ssl_cert || "")}" placeholder="/etc/pki/nginx/sbzl.ir/fullchain.pem" /></label>
+    <label>مسیر کلید (privkey)<input id="e-sslkey" value="${esc(g.ssl_key || "")}" placeholder="/etc/pki/nginx/sbzl.ir/privkey.pem" /></label>
     <label><input id="e-en" type="checkbox" ${g.enabled !== false ? "checked" : ""}/> فعال</label>
     <label><input id="e-sens" type="checkbox" ${g.sensitive ? "checked" : ""}/> حساس (لاگین)</label>
     <label><input id="e-ws" type="checkbox" ${g.websocket !== false ? "checked" : ""}/> WebSocket در Nginx</label>
@@ -451,6 +455,8 @@ function editGateway(g) {
         name: document.getElementById("e-name").value,
         host: document.getElementById("e-host").value,
         listen_port: num("e-lp"),
+        ssl_cert: document.getElementById("e-sslcert").value.trim(),
+        ssl_key: document.getElementById("e-sslkey").value.trim(),
         enabled: document.getElementById("e-en").checked,
         sensitive: document.getElementById("e-sens").checked,
         websocket: document.getElementById("e-ws").checked,
@@ -509,8 +515,9 @@ async function openNginx() {
       <label style="flex:1">پایان محدوده<input id="n-dmax" type="number" value="${ns.domain_port_max || 8999}" /></label>
     </div>
     <label>آدرس Go برای Nginx</label><input id="n-up" value="${esc(ns.gateway_upstream || "127.0.0.1:8002")}" />
-    <label>گواهی</label><input id="n-cert" value="${esc(ns.ssl_cert || "")}" />
-    <label>کلید</label><input id="n-key" value="${esc(ns.ssl_key || "")}" />
+    <label>گواهی پیش‌فرض (همه دامنه‌ها مگر override)</label><input id="n-cert" value="${esc(ns.ssl_cert || "")}" />
+    <label>کلید پیش‌فرض</label><input id="n-key" value="${esc(ns.ssl_key || "")}" />
+    <p class="muted">برای دامنه با SSL جدا (مثل sbzl.ir) در ویرایش همان دامنه مسیر گواهی را پر کنید؛ Nginx با SNI روی همان ۴۴۳ انتخاب می‌کند.</p>
     <label><input id="n-redir" type="checkbox" ${ns.redirect_http ? "checked" : ""}/> ریدایرکت HTTP به HTTPS</label>
     <label><input id="n-ws" type="checkbox" ${ns.websocket ? "checked" : ""}/> WebSocket پیش‌فرض</label>
     <label>client_max_body_size</label><input id="n-body" value="${esc(ns.client_max_body || "20m")}" />

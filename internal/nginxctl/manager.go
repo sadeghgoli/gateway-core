@@ -94,7 +94,6 @@ func renderShared443(settings models.NginxSettings, gateways []models.Gateway, a
 	if len(hosts) == 0 {
 		return "", fmt.Errorf("هیچ دامنه‌ای برای Nginx تعریف نشده")
 	}
-	names := strings.Join(hosts, "\n                ")
 
 	body := settings.ClientMaxBody
 	readTO := settings.ProxyReadTimeout
@@ -121,8 +120,62 @@ func renderShared443(settings models.NginxSettings, gateways []models.Gateway, a
 		}
 	}
 
+	type certGroup struct {
+		cert  string
+		key   string
+		hosts []string
+	}
+	order := make([]string, 0)
+	groups := map[string]*certGroup{}
+	addToGroup := func(host, cert, key string) error {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" || !hostRe.MatchString(host) {
+			return nil
+		}
+		cert = strings.TrimSpace(cert)
+		key = strings.TrimSpace(key)
+		if cert == "" {
+			cert = settings.SSLCert
+			key = settings.SSLKey
+		}
+		if cert != "" && !safePath(cert) {
+			return fmt.Errorf("مسیر گواهی نامعتبر برای %s", host)
+		}
+		if key != "" && !safePath(key) {
+			return fmt.Errorf("مسیر کلید نامعتبر برای %s", host)
+		}
+		gk := cert + "\x00" + key
+		if groups[gk] == nil {
+			groups[gk] = &certGroup{cert: cert, key: key}
+			order = append(order, gk)
+		}
+		for _, h := range groups[gk].hosts {
+			if h == host {
+				return nil
+			}
+		}
+		groups[gk].hosts = append(groups[gk].hosts, host)
+		return nil
+	}
+
+	for _, g := range gateways {
+		if !g.Enabled {
+			continue
+		}
+		if err := addToGroup(g.Host, g.SSLCert, g.SSLKey); err != nil {
+			return "", err
+		}
+	}
+	if err := addToGroup(adminHost, "", ""); err != nil {
+		return "", err
+	}
+	if len(order) == 0 {
+		return "", fmt.Errorf("هیچ دامنه‌ای برای Nginx تعریف نشده")
+	}
+
+	allNames := strings.Join(hosts, "\n                ")
 	var b strings.Builder
-	b.WriteString("# managed by gateway-core — shared 443 (do not edit by hand)\n")
+	b.WriteString("# managed by gateway-core — shared 443 + SNI (do not edit by hand)\n")
 	b.WriteString("map $http_upgrade $connection_upgrade {\n    default upgrade;\n    ''      close;\n}\n\n")
 	b.WriteString("upstream gateway_core {\n    server " + settings.GatewayUpstream + ";\n    keepalive 32;\n}\n\n")
 
@@ -134,7 +187,7 @@ func renderShared443(settings models.NginxSettings, gateways []models.Gateway, a
     return 301 https://$host$request_uri;
 }
 
-`, settings.ListenHTTP, settings.ListenHTTP, names))
+`, settings.ListenHTTP, settings.ListenHTTP, allNames))
 	} else {
 		b.WriteString(fmt.Sprintf(`server {
     listen %d default_server;
@@ -155,18 +208,42 @@ func renderShared443(settings models.NginxSettings, gateways []models.Gateway, a
 	}
 
 	httpsPort := settings.ListenHTTPS
-	b.WriteString("# همه دامنه‌ها → Go (Host-based routing)\nserver {\n")
-	if hasSSL(settings) {
-		b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", httpsPort, httpsPort))
-	} else {
-		b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", httpsPort, httpsPort))
+	for i, gk := range order {
+		grp := groups[gk]
+		names := strings.Join(grp.hosts, "\n                ")
+		b.WriteString(fmt.Sprintf("# SSL group %d → Go (SNI)\nserver {\n", i+1))
+		if grp.cert != "" && grp.key != "" {
+			b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", httpsPort, httpsPort))
+		} else {
+			b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", httpsPort, httpsPort))
+		}
+		b.WriteString("    server_name " + names + ";\n")
+		if grp.cert != "" && grp.key != "" {
+			b.WriteString("    ssl_certificate     " + grp.cert + ";\n")
+			b.WriteString("    ssl_certificate_key " + grp.key + ";\n")
+		}
+		b.WriteString("    client_max_body_size " + body + ";\n")
+		writeProxyLocation(&b, ws, readTO, sendTO)
+		b.WriteString("}\n\n")
 	}
-	b.WriteString("    server_name " + names + ";\n")
-	if settings.SSLCert != "" {
-		b.WriteString("    ssl_certificate     " + settings.SSLCert + ";\n")
-		b.WriteString("    ssl_certificate_key " + settings.SSLKey + ";\n")
+
+	for _, g := range gateways {
+		if !g.Enabled || !hostRe.MatchString(g.Host) {
+			continue
+		}
+		b.WriteString("# " + g.Name + " → ")
+		if len(g.Upstreams) > 0 {
+			b.WriteString(g.Upstreams[0].EffectiveURL())
+		}
+		if strings.TrimSpace(g.SSLCert) != "" {
+			b.WriteString(" [custom SSL]")
+		}
+		b.WriteString(" (via Host)\n")
 	}
-	b.WriteString("    client_max_body_size " + body + ";\n")
+	return b.String(), nil
+}
+
+func writeProxyLocation(b *strings.Builder, ws bool, readTO, sendTO int) {
 	b.WriteString("    location / {\n")
 	b.WriteString("        proxy_pass http://gateway_core;\n")
 	b.WriteString("        proxy_http_version 1.1;\n")
@@ -180,19 +257,7 @@ func renderShared443(settings models.NginxSettings, gateways []models.Gateway, a
 	}
 	b.WriteString(fmt.Sprintf("        proxy_read_timeout %ds;\n        proxy_send_timeout %ds;\n", readTO, sendTO))
 	b.WriteString("        proxy_buffering off;\n")
-	b.WriteString("    }\n}\n")
-
-	for _, g := range gateways {
-		if !g.Enabled || !hostRe.MatchString(g.Host) {
-			continue
-		}
-		b.WriteString("# " + g.Name + " → ")
-		if len(g.Upstreams) > 0 {
-			b.WriteString(g.Upstreams[0].EffectiveURL())
-		}
-		b.WriteString(" (via Host)\n")
-	}
-	return b.String(), nil
+	b.WriteString("    }\n")
 }
 
 func renderPerDomainPorts(settings models.NginxSettings, gateways []models.Gateway, adminHost string) (string, error) {
@@ -265,15 +330,19 @@ func renderPerDomainPorts(settings models.NginxSettings, gateways []models.Gatew
 			return "", fmt.Errorf("برای دامنه %s پورت عمومی تنظیم نشده", g.Host)
 		}
 		b.WriteString("\nserver {\n")
-		if hasSSL(settings) {
+		cert, key := effectiveSSL(g, settings)
+		if cert != "" && key != "" {
 			b.WriteString(fmt.Sprintf("    listen %d ssl;\n    listen [::]:%d ssl;\n    http2 on;\n", g.ListenPort, g.ListenPort))
 		} else {
 			b.WriteString(fmt.Sprintf("    listen %d;\n    listen [::]:%d;\n", g.ListenPort, g.ListenPort))
 		}
 		b.WriteString("    server_name " + g.Host + ";\n")
-		if settings.SSLCert != "" {
-			b.WriteString("    ssl_certificate     " + settings.SSLCert + ";\n")
-			b.WriteString("    ssl_certificate_key " + settings.SSLKey + ";\n")
+		if cert != "" && key != "" {
+			if !safePath(cert) || !safePath(key) {
+				return "", fmt.Errorf("مسیر گواهی/کلید نامعتبر برای %s", g.Host)
+			}
+			b.WriteString("    ssl_certificate     " + cert + ";\n")
+			b.WriteString("    ssl_certificate_key " + key + ";\n")
 		}
 		b.WriteString("    client_max_body_size " + body + ";\n")
 		b.WriteString("    location / {\n")
@@ -351,6 +420,8 @@ func (m *Manager) Apply(settings models.NginxSettings, content string) error {
 	if err := os.MkdirAll(filepath.Dir(settings.ConfPath), 0o755); err != nil {
 		return err
 	}
+	// جلوگیری از duplicate upstream gateway_core با confهای دیگر
+	archiveConflictingUpstreams(settings.ConfPath)
 	tmp := settings.ConfPath + ".tmp"
 	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
 		return err
@@ -374,6 +445,30 @@ func (m *Manager) Apply(settings models.NginxSettings, content string) error {
 	return nil
 }
 
+func archiveConflictingUpstreams(keepPath string) {
+	dir := filepath.Dir(keepPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	keepAbs, _ := filepath.Abs(keepPath)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		abs, _ := filepath.Abs(p)
+		if abs == keepAbs {
+			continue
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil || !strings.Contains(string(raw), "upstream gateway_core") {
+			continue
+		}
+		_ = os.Rename(p, p+".bak")
+	}
+}
+
 func publicRedirect(port int, ssl bool) string {
 	scheme := "http"
 	if ssl {
@@ -387,6 +482,15 @@ func publicRedirect(port int, ssl bool) string {
 
 func hasSSL(settings models.NginxSettings) bool {
 	return strings.TrimSpace(settings.SSLCert) != "" && strings.TrimSpace(settings.SSLKey) != ""
+}
+
+func effectiveSSL(g models.Gateway, settings models.NginxSettings) (cert, key string) {
+	cert = strings.TrimSpace(g.SSLCert)
+	key = strings.TrimSpace(g.SSLKey)
+	if cert != "" && key != "" {
+		return cert, key
+	}
+	return strings.TrimSpace(settings.SSLCert), strings.TrimSpace(settings.SSLKey)
 }
 
 func httpsRedirect(port int) string {

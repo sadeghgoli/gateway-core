@@ -9,6 +9,12 @@
 | `apisrv-gatewaylogin.sabzevar.ir` | `https://apisrv.sabzevar.ir` | لاگین؛ در پنل قابل تغییر |
 | `apisrv-gateway137.sabzevar.ir` | `http://127.0.0.1:13700` | پورت محلی / سرویس ۱۳۷ |
 | `gateway-admin.sabzevar.ir` | خود gateway-core | پنل ادمین (پروکسی نمی‌شود) |
+| `sbzl.ir` (نمونه SSL جدا) | از پنل | گواهی جدا روی سرور گیت‌وی؛ فیلد SSL در ویرایش دامنه |
+
+## SSL
+
+- پیش‌فرض همه دامنه‌ها: `/etc/pki/nginx/fullchain.pem` + `privkey.pem`
+- دامنه با گواهی جدا: `sudo DOMAIN=... PFX=... bash deploy/apply-domain-ssl.sh` سپس در پنل مسیرها را پر کنید (جزئیات: [ssl/README.md](../ssl/README.md))
 
 ## قالب برای دامنه جدید (از کارفرما بگیر)
 
